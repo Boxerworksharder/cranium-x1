@@ -1,0 +1,23 @@
+# PlatformIO build directories and binaries
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# IDE / Editor configuration
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Operating System files
+.DS_Store
+Thumbs.db
+
+# Python bytecode & cache
+__pycache__/
+*.pyc
+
+# Temporary test logs
+/tmp/
+*.log

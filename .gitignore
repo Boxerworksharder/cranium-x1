@@ -1,0 +1,38 @@
+# OS & Editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# ESP32 Firmware
+firmware/.pio/
+firmware/.pioenvs/
+firmware/.piolibdeps/
+firmware/__pycache__/
+firmware/*.pyc
+firmware/*.log
+firmware/include/config.local.h
+
+# Flutter Companion Mobile App
+mobile/.dart_tool/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/.pub-cache/
+mobile/.pub/
+mobile/build/
+mobile/android/app/debug
+mobile/android/app/profile
+mobile/android/app/release
+mobile/ios/Flutter/.last_build_id
+mobile/app.*.symbols
+mobile/app.*.map.json
+mobile/linux/flutter/ephemeral/
+mobile/windows/flutter/ephemeral/
+mobile/macos/Flutter/ephemeral/
+
+# Compiled firmware binaries
+*.bin
+firmware/release/*.bin

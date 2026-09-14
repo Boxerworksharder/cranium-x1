@@ -1,0 +1,18 @@
+{
+  "name": "CRANIUM X1 Focus Engine",
+  "short_name": "Cranium X1",
+  "description": "Tactical Focus & Productivity Telemetry Companion",
+  "start_url": "/index.html",
+  "display": "standalone",
+  "background_color": "#0B0C10",
+  "theme_color": "#FF5500",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23FF5500'/><text x='50' y='65' font-size='45' font-weight='900' font-family='monospace' fill='black' text-anchor='middle'>X1</text></svg>",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

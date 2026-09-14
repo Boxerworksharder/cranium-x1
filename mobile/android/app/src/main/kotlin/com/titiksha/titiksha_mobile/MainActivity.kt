@@ -1,0 +1,5 @@
+package com.titiksha.titiksha_mobile
+
+import io.flutter.embedding.android.FlutterActivity
+
+class MainActivity: FlutterActivity()
