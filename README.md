@@ -4,8 +4,8 @@
 
 ---
 
-[![Release](https://img.shields.io/github/v/release/Boxerworksharder/cranium-x1?style=for-the-badge&color=ff5500)](https://github.com/Boxerworksharder/cranium-x1/releases/tag/v1.8)
-[![Download APK](https://img.shields.io/badge/Download_APK-v1.8_(22.8MB)-00e5ff?style=for-the-badge&logo=android)](https://github.com/Boxerworksharder/cranium-x1/releases/download/v1.8/cranium_x1.apk)
+[![Release](https://img.shields.io/github/v/release/Boxerworksharder/cranium-x1?style=for-the-badge&color=ff5500)](https://github.com/Boxerworksharder/cranium-x1/releases/tag/v1.8.1)
+[![Download APK](https://img.shields.io/badge/Download_APK-v1.8.1_(22.8MB)-00e5ff?style=for-the-badge&logo=android)](https://github.com/Boxerworksharder/cranium-x1/releases/download/v1.8.1/cranium_x1.apk)
 [![Tests](https://img.shields.io/badge/Tests-66%20Passed%20(100%25)-39ff14?style=for-the-badge&logo=flutter)](https://github.com/Boxerworksharder/cranium-x1)
 [![Hardware](https://img.shields.io/badge/Hardware-ESP32--C3%20%7C%20ESP32--WROOM-blueviolet?style=for-the-badge&logo=espressif)](https://github.com/Boxerworksharder/cranium-x1)
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy_Me_A_Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/boxerworksharder)
@@ -38,7 +38,7 @@ cranium-x1/
 
 ---
 
-## 🌟 Key Subsystems (v1.8)
+## 🌟 Key Subsystems (v1.8.1)
 
 ### 1. ESP32 Physical Hardware Chronograph
 - **SH1106 / SSD1306 I2C OLED Display**: High-contrast 128x64 tactical display with micro-dot page indicators (`● ○`), session timer pulse ring, dynamic mastery levels (`LVL 0`–`LVL 5`), and auto-dimming idle screensaver.
