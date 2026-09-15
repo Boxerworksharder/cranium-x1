@@ -26,6 +26,7 @@ cranium-x1/
 
 [![Release](https://img.shields.io/github/v/release/Boxerworksharder/cranium-x1?style=for-the-badge&color=ff5500)](https://github.com/Boxerworksharder/cranium-x1/releases/tag/v1.3)
 [![Download APK](https://img.shields.io/badge/Download_APK-v1.3_(23.8MB)-00e5ff?style=for-the-badge&logo=android)](https://github.com/Boxerworksharder/cranium-x1/releases/download/v1.3/cranium_x1.apk)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy_Me_A_Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/boxerworksharder)
 
 ---
 
@@ -119,6 +120,14 @@ Run all tests:
 ```bash
 cd mobile && flutter test
 ```
+
+---
+
+## ☕ Support the Project
+
+If Cranium X1 has helped streamline your focus sessions and level up your deep work, consider supporting its open-source development:
+
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy_Me_A_Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/boxerworksharder)
 
 ---
 

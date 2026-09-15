@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../core/services/csv_export_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../state/tracker_provider.dart';
@@ -756,7 +757,66 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               const SizedBox(height: 16),
 
-              // 5. Danger Zone: Factory Data Reset with Warning Modal
+              // 5. Support the Project: Buy Me A Coffee
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppTheme.surfaceDeck,
+                  borderRadius: BorderRadius.circular(AppTheme.radiusDeck),
+                  border: Border.all(color: const Color(0xFFFFDD00).withOpacity(0.4)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.coffee_rounded, color: Color(0xFFFFDD00), size: 20),
+                        const SizedBox(width: 8),
+                        Text(
+                          'SUPPORT CRANIUM X1',
+                          style: AppTheme.technicalLabel(
+                            color: const Color(0xFFFFDD00),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Distraction-free deep work built for the community. Fuel future firmware enhancements, PCB schematics, and open-source updates with a coffee.',
+                      style: TextStyle(fontSize: 11, color: AppTheme.textMuted, height: 1.4),
+                    ),
+                    const SizedBox(height: 14),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        icon: const Icon(Icons.volunteer_activism_rounded, size: 18),
+                        label: const Text(
+                          'BUY ME A COFFEE (☕ boxerworksharder)',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 0.8),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFFFDD00),
+                          foregroundColor: Colors.black87,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusControl)),
+                        ),
+                        onPressed: () async {
+                          final uri = Uri.parse('https://buymeacoffee.com/boxerworksharder');
+                          if (await canLaunchUrl(uri)) {
+                            await launchUrl(uri, mode: LaunchMode.externalApplication);
+                          }
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // 6. Danger Zone: Factory Data Reset with Warning Modal
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
