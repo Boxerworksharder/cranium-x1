@@ -1,9 +1,12 @@
 #pragma once
 #include <Arduino.h>
-#include <WiFi.h>
-#include <WiFiUdp.h>
 #include "config.h"
 #include "pin_config.h"
+
+#if FEATURE_WIFI
+#include <WiFi.h>
+#include <WiFiUdp.h>
+#endif
 
 // ============================================================================
 // CRANIUM X1 · POWER BANK ANTI-SLEEP KEEP-ALIVE ENGINE
@@ -20,11 +23,15 @@ public:
     static unsigned long lastPulseMillis;
     static bool isPulsing;
     static unsigned long pulseStartMillis;
+#if FEATURE_WIFI
     static WiFiUDP keepAliveUdp;
+#endif
 
     static void init() {
         Serial.println("[POWER] Initializing Power Bank Keep-Alive Engine...");
+#if FEATURE_WIFI
         WiFi.setTxPower(WIFI_POWER_19_5dBm); // Set RF transceiver to maximum +19.5dBm
+#endif
         lastPulseMillis = millis();
         isPulsing = false;
     }
@@ -53,6 +60,7 @@ public:
             digitalWrite(PIN_LED_STATUS, HIGH);
             #endif
 
+#if FEATURE_WIFI
             // Burst high-power RF transmission packets
             if (WiFi.getMode() != WIFI_OFF) {
                 for (int i = 0; i < 4; i++) {
@@ -61,6 +69,7 @@ public:
                     keepAliveUdp.endPacket();
                 }
             }
+#endif
         }
 
         // 2. End Keep-Alive Pulse after calibrated 120ms duration

@@ -2,6 +2,7 @@
 #include <Wire.h>
 #include <U8g2lib.h>
 #include <RotaryEncoder.h>
+#include <esp_task_wdt.h>
 #include "config.h"
 #include "pin_config.h"
 #include "tracker_state.h"
@@ -525,7 +526,7 @@ void handleButtons() {
             if (tallyEvt == ButtonHandler::CLICK) {
                 tracker.clients[tracker.menuIndex].isNegative = !tracker.clients[tracker.menuIndex].isNegative;
                 StorageManager::saveTrackerData(tracker);
-                bleManager.broadcastStatus();
+                bleManager.requestImmediateBroadcast();
                 HapticManager::pulseTap();
                 triggerStatusLedFlash(120);
                 needsRedraw = true;
@@ -557,7 +558,10 @@ void setup() {
     Serial.println("     CRANIUM X1 · TACTICAL COCKPIT       ");
     Serial.println("=========================================");
 
-    trackerMutex = xSemaphoreCreateMutex();
+    trackerMutex = xSemaphoreCreateRecursiveMutex();
+    esp_task_wdt_init(5, true); // 5-Second Hardware Task Watchdog Timer
+    esp_task_wdt_add(NULL);     // Subscribe main loopTask to WDT
+
     StorageManager::init();
     StorageManager::loadTrackerData(tracker);
     HapticManager::init();
@@ -604,28 +608,39 @@ void setup() {
     u8g2.setBusClock(OLED_I2C_CLOCK_SPEED);
     u8g2.setContrast(tracker.activeBrightness);
 
+#if FEATURE_WIFI
     OledUI::renderBootSplash("CRANIUM X1", "Connecting WiFi...");
-
     webServer.init();
-
     String mdnsUrl = "http://" + String(MDNS_HOSTNAME) + ".local";
     OledUI::renderReadySplash("CRANIUM X1", webServer.currentIP, mdnsUrl.c_str());
+#else
+    OledUI::renderBootSplash("CRANIUM X1", "BLE 5.0 Active");
+    webServer.init(); // Empty stub
+    OledUI::renderReadySplash("CRANIUM X1", "BLE: CRANIUM-X1", "PAIR COMPANION APP");
+#endif
 
     #if PIN_BOARD_LED != PIN_HAPTIC_MOTOR
     digitalWrite(PIN_BOARD_LED, HIGH);
     #endif
     bleManager.init(&tracker);
     PowerManager::init();
-    delay(1000);
+    delay(400);
 
     tracker.state = STATE_SELECT_CLIENT;
     tracker.menuIndex = 0;
     tracker.recordUserActivity();
     needsRedraw = true;
+
+#if FEATURE_WIFI
     Serial.printf("[READY] Ready! Web dashboard live at %s\n", mdnsUrl.c_str());
+#else
+    Serial.println("[READY] Ready in Pure-BLE Mode! Connect companion app via Bluetooth.");
+#endif
 }
 
 void loop() {
+    esp_task_wdt_reset(); // Feed hardware Task Watchdog Timer
+
     // 1. Process Hardware Inputs
     handleEncoderInput();
     handleButtons();
@@ -808,6 +823,9 @@ void loop() {
     if (needsRedraw) {
         needsRedraw = false;
         TrackerLock lock;
+        if (!tracker.isDimmed) {
+            u8g2.setContrast(tracker.activeBrightness);
+        }
         if (tracker.isShowingWellnessAlert) {
             OledUI::renderWellnessAlertScreen(tracker.currentWellnessAlertKind, millis() - tracker.wellnessAlertStartMillis);
         } else if (tracker.state == STATE_CONFIG_WELLNESS) {
@@ -827,8 +845,13 @@ void loop() {
         } else if (tracker.state == STATE_VIEW_SUMMARY) {
             OledUI::renderSummaryScreen();
         } else if (tracker.state == STATE_VIEW_QR) {
+#if FEATURE_WIFI
             String qUrl = "http://" + (webServer.currentIP.length() > 0 ? webServer.currentIP : "192.168.0.210");
             OledUI::renderQrCodeScreen(qUrl, webServer.currentIP);
+#else
+            String qUrl = "https://github.com/Boxerworksharder/cranium-x1/releases/download/v1.4/cranium_x1.apk";
+            OledUI::renderQrCodeScreen(qUrl, "APK DOWNLOAD");
+#endif
         } else {
             if (trackingPageView == 0) {
                 OledUI::renderTrackingScreen();

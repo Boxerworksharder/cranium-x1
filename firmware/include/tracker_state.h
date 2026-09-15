@@ -3,19 +3,19 @@
 #include <vector>
 #include <time.h>
 
-// FreeRTOS Mutex for thread-safe concurrent tracker access
+// FreeRTOS Recursive Mutex for thread-safe concurrent & re-entrant tracker access
 extern SemaphoreHandle_t trackerMutex;
 
 class TrackerLock {
 public:
     TrackerLock() {
         if (trackerMutex) {
-            xSemaphoreTake(trackerMutex, portMAX_DELAY);
+            xSemaphoreTakeRecursive(trackerMutex, portMAX_DELAY);
         }
     }
     ~TrackerLock() {
         if (trackerMutex) {
-            xSemaphoreGive(trackerMutex);
+            xSemaphoreGiveRecursive(trackerMutex);
         }
     }
 };

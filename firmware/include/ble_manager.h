@@ -433,7 +433,6 @@ inline void CommandCallbacks::onWrite(BLECharacteristic* pCharacteristic) {
             int b = doc["level"] | (doc["value"] | -1);
             if (b >= 10 && b <= 255) {
                 tracker->setBrightness((uint8_t)b);
-                u8g2.setContrast(tracker->activeBrightness);
                 StorageManager::saveTrackerData(*tracker);
                 HapticManager::pulseTap();
                 needsRedraw = true;

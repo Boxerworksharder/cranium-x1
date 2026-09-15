@@ -1,12 +1,14 @@
 #pragma once
 #include <Arduino.h>
+#include "config.h"
+
+#if FEATURE_WIFI
 #include <WiFi.h>
 #include <WebServer.h>
 #include <DNSServer.h>
 #include <ESPmDNS.h>
 #include <ArduinoJson.h>
 #include <time.h>
-#include "config.h"
 #include "tracker_state.h"
 #include "storage_manager.h"
 #include "web_assets.h"
@@ -1160,3 +1162,13 @@ private:
         });
     }
 };
+#else
+class DeskTrackerWebServer {
+public:
+    String currentIP = "";
+    bool wifiConnected = false;
+    bool isAwayMode = false;
+    void init() {}
+    void handle() {}
+};
+#endif
