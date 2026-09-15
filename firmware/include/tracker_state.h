@@ -25,7 +25,6 @@ enum TrackerState {
     STATE_TRACKING,       // Actively tracking time (timer incrementing)
     STATE_PAUSED,         // Tracking paused (timer frozen)
     STATE_VIEW_SUMMARY,   // Detailed scrollable breakdown report of all projects/activities
-    STATE_VIEW_QR,        // Dedicated QR code connect screen
     STATE_VIEW_LOGS,      // Browse timestamped session logs on OLED display
     STATE_SET_BRIGHTNESS, // OLED display brightness adjustment screen
     STATE_VIEW_TASKS,     // Priority Task List with stars (accessed via GPIO 20 click)

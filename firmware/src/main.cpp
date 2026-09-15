@@ -194,7 +194,7 @@ void handleEncoderInput() {
         }
 
         if (tracker.state == STATE_SELECT_CLIENT) {
-            int totalItems = tracker.clients.size() + 8;
+            int totalItems = tracker.clients.size() + 7;
             if (diff > 0) {
                 tracker.menuIndex = (tracker.menuIndex + 1) % totalItems;
             } else if (diff < 0) {
@@ -269,9 +269,6 @@ void handleEncoderInput() {
             } else if (diff < 0) {
                 tracker.summaryIndex = (tracker.summaryIndex - 1 + totalItems) % totalItems;
             }
-            needsRedraw = true;
-        } else if (tracker.state == STATE_VIEW_QR) {
-            tracker.state = STATE_SELECT_CLIENT;
             needsRedraw = true;
         } else if (tracker.state == STATE_TRACKING || tracker.state == STATE_PAUSED) {
             if (diff > 0) {
@@ -390,9 +387,6 @@ void handleButtons() {
                     tracker.state = STATE_CONFIG_WELLNESS;
                     tracker.wellnessConfigField = 0;
                 } else if (tracker.menuIndex == totalClients + 6) {
-                    HapticManager::pulseTap();
-                    tracker.state = STATE_VIEW_QR;
-                } else if (tracker.menuIndex == totalClients + 7) {
                     PowerManager::keepAliveEnabled = !PowerManager::keepAliveEnabled;
                     HapticManager::pulseTap();
                     triggerStatusLedFlash(100);
@@ -437,10 +431,6 @@ void handleButtons() {
                 if (tracker.state == STATE_SELECT_CLIENT) {
                     tracker.menuIndex = tracker.activeClientIndex;
                 }
-            } else if (tracker.state == STATE_VIEW_QR) {
-                HapticManager::pulseTap();
-                tracker.state = STATE_SELECT_CLIENT;
-                tracker.menuIndex = tracker.activeClientIndex;
             } else if (tracker.state == STATE_TRACKING || tracker.state == STATE_PAUSED) {
                 tracker.togglePause();
                 if (tracker.state == STATE_TRACKING) {
@@ -466,13 +456,9 @@ void handleButtons() {
                 tracker.menuIndex = tracker.activeClientIndex;
                 previousStateBeforeGlance = STATE_SELECT_CLIENT;
             } else if (tracker.state == STATE_SELECT_CLIENT) {
-                if (tracker.menuIndex != tracker.activeClientIndex) {
-                    tracker.menuIndex = tracker.activeClientIndex; // Snap back to active client
-                } else {
-                    tracker.state = STATE_VIEW_QR; // Quick jump to QR
-                }
+                tracker.menuIndex = tracker.activeClientIndex; // Snap back to active client
             } else {
-                // From ANY sub-screen (Tasks, Logs, Summary, Brightness, QR, Wellness): Return directly to Main Page!
+                // From ANY sub-screen (Tasks, Logs, Summary, Brightness, Wellness): Return directly to Main Page!
                 if (tracker.state == STATE_SET_BRIGHTNESS || tracker.state == STATE_CONFIG_WELLNESS) {
                     StorageManager::saveTrackerData(tracker);
                 }
@@ -844,14 +830,6 @@ void loop() {
             OledUI::renderSessionLogsScreen();
         } else if (tracker.state == STATE_VIEW_SUMMARY) {
             OledUI::renderSummaryScreen();
-        } else if (tracker.state == STATE_VIEW_QR) {
-#if FEATURE_WIFI
-            String qUrl = "http://" + (webServer.currentIP.length() > 0 ? webServer.currentIP : "192.168.0.210");
-            OledUI::renderQrCodeScreen(qUrl, webServer.currentIP);
-#else
-            String qUrl = "https://github.com/Boxerworksharder/cranium-x1/releases/download/v1.4/cranium_x1.apk";
-            OledUI::renderQrCodeScreen(qUrl, "APK DOWNLOAD");
-#endif
         } else {
             if (trackingPageView == 0) {
                 OledUI::renderTrackingScreen();

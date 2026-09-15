@@ -58,62 +58,28 @@ inline void renderBootSplash(const char* title, const char* statusMsg) {
     u8g2.sendBuffer();
 }
 
-#include <qrcode.h>
-
-inline void renderQrCodeScreen(const String& urlStr, const String& ipStr) {
+inline void renderReadySplash(const char* title, const String& line1, const char* line2) {
     u8g2.clearBuffer();
-
-    QRCode qrcode;
-    uint8_t qrcodeData[qrcode_getBufferSize(3)];
-    qrcode_initText(&qrcode, qrcodeData, 3, ECC_LOW, urlStr.c_str());
-
-    // Version 3 is 29x29 modules. At scale 2, 58x58 pixels.
-    int startX = 3;
-    int startY = 3;
-    int qrPx = qrcode.size * 2; // 58
-
-    // White quiet zone border around QR code
-    u8g2.setDrawColor(1);
-    u8g2.drawBox(startX - 2, startY - 2, qrPx + 4, qrPx + 4);
-
-    // Draw dark modules inside quiet zone
-    u8g2.setDrawColor(0);
-    for (uint8_t y = 0; y < qrcode.size; y++) {
-        for (uint8_t x = 0; x < qrcode.size; x++) {
-            if (qrcode_getModule(&qrcode, x, y)) {
-                u8g2.drawBox(startX + (x * 2), startY + (y * 2), 2, 2);
-            }
-        }
-    }
-
-    // Right side info pane
-    u8g2.setDrawColor(1);
-    bool isAway = (ipStr == "192.168.4.1");
+    
+    // Header
     u8g2.setFont(u8g2_font_helvB08_tf);
-    u8g2.drawStr(66, 12, isAway ? "AWAY AP" : "CONNECT");
+    int tW = u8g2.getStrWidth(title);
+    u8g2.drawStr((128 - tW) / 2, 16, title);
+    u8g2.drawHLine(8, 20, 112);
 
+    // Status Pill / Badge
+    u8g2.setFont(u8g2_font_6x10_tf);
+    u8g2.drawStr(12, 34, "STATUS: READY");
+
+    // Line 1 (BLE name or IP)
+    u8g2.setFont(u8g2_font_5x8_tf);
+    u8g2.drawStr(12, 46, line1.c_str());
+
+    // Line 2 (Action hint or mDNS)
     u8g2.setFont(u8g2_font_5x7_tf);
-    if (isAway) {
-        u8g2.drawStr(66, 24, "BLE Ready");
-        u8g2.drawStr(66, 34, "Hotspot");
-    } else {
-        u8g2.drawStr(66, 24, "Scan with");
-        u8g2.drawStr(66, 34, "camera");
-    }
-
-    u8g2.setFont(u8g2_font_4x6_tf);
-    String displayIp = ipStr.length() > 0 ? ipStr : "192.168.0.210";
-    u8g2.drawStr(66, 46, displayIp.c_str());
-
-    u8g2.setFont(u8g2_font_5x7_tf);
-    u8g2.drawStr(66, 58, "[OK Click]");
+    u8g2.drawStr(12, 58, line2);
 
     u8g2.sendBuffer();
-}
-
-inline void renderReadySplash(const char* title, const String& ipStr, const char* mdnsStr) {
-    String qUrl = "http://" + (ipStr.length() > 0 ? ipStr : "192.168.0.210");
-    renderQrCodeScreen(qUrl, ipStr);
 }
 
 inline void renderGlobalDeepWorkHeader(bool isTrackingScreen) {
@@ -199,7 +165,7 @@ inline void renderClientSelectScreen() {
     renderGlobalDeepWorkHeader(false);
 
     int totalClients = tracker.clients.size();
-    int totalItems = totalClients + 8;
+    int totalItems = totalClients + 7;
     int selected = tracker.menuIndex;
     if (selected >= totalItems) selected = 0;
 
@@ -340,20 +306,6 @@ inline void renderClientSelectScreen() {
                 u8g2.setFont(u8g2_font_6x10_tf);
                 int rW = u8g2.getStrWidth(wBuf);
                 u8g2.drawStr((128 - rW) / 2, y, wBuf);
-            }
-        } else if (i == totalClients + 6) {
-            // [ QR Connect ]
-            if (i == selected) {
-                u8g2.drawRBox(0, y - 9, 128, 12, 2);
-                u8g2.setDrawColor(0);
-                u8g2.setFont(u8g2_font_helvB08_tf);
-                int rW = u8g2.getStrWidth(">> QR CONNECT <<");
-                u8g2.drawStr((128 - rW) / 2, y, ">> QR CONNECT <<");
-                u8g2.setDrawColor(1);
-            } else {
-                u8g2.setFont(u8g2_font_6x10_tf);
-                int rW = u8g2.getStrWidth("[ QR Connect ]");
-                u8g2.drawStr((128 - rW) / 2, y, "[ QR Connect ]");
             }
         } else {
             // [ ⚡ PB KeepAlive: ON / OFF ]

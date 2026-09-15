@@ -13,7 +13,6 @@
 #include "storage_manager.h"
 #include "web_assets.h"
 #include "haptic_manager.h"
-#include <qrcode.h>
 #include <U8g2lib.h>
 #include <esp_wifi.h>
 #include "power_manager.h"
@@ -339,30 +338,15 @@ private:
             server.send(200, "application/json", jsonBuf);
         });
 
-        // Instant Dynamic SVG QR Code Endpoint
+        // Instant Dynamic SVG QR Code Endpoint (Deprecated / Disabled)
         server.on("/api/qrcode", HTTP_GET, [this]() {
             sendCORS();
-            String url = "http://" + (currentIP.length() > 0 ? currentIP : "192.168.0.210");
-            QRCode qrcode;
-            uint8_t qrcodeData[qrcode_getBufferSize(3)];
-            qrcode_initText(&qrcode, qrcodeData, 3, ECC_LOW, url.c_str());
-
-            String svg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 " + String(qrcode.size + 4) + " " + String(qrcode.size + 4) + "' width='240' height='240'><rect width='100%' height='100%' fill='#FFFFFF'/><path fill='#000000' d='";
-            for (uint8_t y = 0; y < qrcode.size; y++) {
-                for (uint8_t x = 0; x < qrcode.size; x++) {
-                    if (qrcode_getModule(&qrcode, x, y)) {
-                        svg += "M" + String(x + 2) + " " + String(y + 2) + "h1v1h-1z ";
-                    }
-                }
-            }
-            svg += "'/></svg>";
-            server.send(200, "image/svg+xml", svg);
+            server.send(404, "text/plain", "QR code feature disabled");
         });
 
         server.on("/qrcode.svg", HTTP_GET, [this]() {
             sendCORS();
-            server.sendHeader("Location", "/api/qrcode", true);
-            server.send(302, "text/plain", "");
+            server.send(404, "text/plain", "QR code feature disabled");
         });
 
         // #15 — Update Daily Deep Work Goal
