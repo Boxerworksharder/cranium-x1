@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../core/constants/app_constants.dart';
@@ -16,9 +17,9 @@ import '../data/services/ble_service.dart';
 enum SyncProtocol { wifi, bluetooth }
 enum TimerMode { countUp, countDown }
 
-class TrackerProvider extends ChangeNotifier {
+class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
   final Esp32ApiService _apiService;
-  final BleService _bleService = BleService();
+  final BleService _bleService;
   Timer? _pollTimer;
   Timer? _localTicker;
 
@@ -32,6 +33,9 @@ class TrackerProvider extends ChangeNotifier {
   int _countdownTargetMinutes = 25;
   DateTime? _lastBackupDate;
 
+  String? _lastBleDeviceId;
+  String? _lastBleDeviceName;
+
   DeviceStatus _status = const DeviceStatus();
   List<TaskItem> _tasks = [];
   List<ReminderItem> _reminders = [];
@@ -44,8 +48,15 @@ class TrackerProvider extends ChangeNotifier {
   bool _isPolling = false;
   bool _isDisposed = false;
 
-  TrackerProvider({Esp32ApiService? apiService, bool autoStartPolling = true})
-      : _apiService = apiService ?? Esp32ApiService() {
+  TrackerProvider({
+    Esp32ApiService? apiService,
+    BleService? bleService,
+    bool autoStartPolling = true,
+  })  : _apiService = apiService ?? Esp32ApiService(),
+        _bleService = bleService ?? BleService() {
+    try {
+      WidgetsBinding.instance.addObserver(this);
+    } catch (_) {}
     _init(autoStartPolling: autoStartPolling);
   }
 
@@ -54,6 +65,34 @@ class TrackerProvider extends ChangeNotifier {
     if (_isDisposed) return;
     if (autoStartPolling) {
       startPolling();
+    }
+    // Auto-reconnect saved BLE device on cold launch
+    if (_protocol == SyncProtocol.bluetooth && _lastBleDeviceId != null && _lastBleDeviceId!.isNotEmpty) {
+      debugPrint('[TrackerProvider] Cold start: Auto-connecting saved BLE device: $_lastBleDeviceId');
+      unawaited(_bleService.connectWithId(_lastBleDeviceId!));
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      debugPrint('[TrackerProvider] App resumed from background. Synchronizing state...');
+      _handleAppResume();
+    } else if (state == AppLifecycleState.paused) {
+      debugPrint('[TrackerProvider] App paused into background.');
+    }
+  }
+
+  void _handleAppResume() {
+    if (_protocol == SyncProtocol.bluetooth) {
+      if (_bleService.isConnected) {
+        syncTimeToDevice();
+      } else if (_lastBleDeviceId != null && _lastBleDeviceId!.isNotEmpty) {
+        debugPrint('[TrackerProvider] Resume: Reconnecting to $_lastBleDeviceId...');
+        unawaited(_bleService.connectWithId(_lastBleDeviceId!));
+      }
+    } else if (_protocol == SyncProtocol.wifi) {
+      refreshData();
     }
   }
 
@@ -64,6 +103,8 @@ class TrackerProvider extends ChangeNotifier {
   UiThemeStyle get themeStyle => _themeStyle;
   SyncProtocol get protocol => _protocol;
   BleService get bleService => _bleService;
+  String? get lastBleDeviceId => _lastBleDeviceId;
+  String? get lastBleDeviceName => _lastBleDeviceName;
   DeviceStatus get status => _status;
   List<TaskItem> get tasks => _tasks;
   List<ReminderItem> get reminders => _reminders;
@@ -149,6 +190,12 @@ class TrackerProvider extends ChangeNotifier {
     final savedProtocol = prefs.getString('pref_sync_protocol') ?? 'wifi';
     _protocol = savedProtocol == 'bluetooth' ? SyncProtocol.bluetooth : SyncProtocol.wifi;
 
+    _lastBleDeviceId = prefs.getString('pref_last_ble_device_id');
+    _lastBleDeviceName = prefs.getString('pref_last_ble_device_name');
+    if (_lastBleDeviceId != null && _lastBleDeviceId!.isNotEmpty) {
+      _bleService.setTargetDeviceId(_lastBleDeviceId);
+    }
+
     // Restore cached device status, tasks, and reminders for instantaneous offline render
     final cachedStatus = prefs.getString('pref_cached_status');
     if (cachedStatus != null && cachedStatus.isNotEmpty) {
@@ -194,6 +241,14 @@ class TrackerProvider extends ChangeNotifier {
         try {
           final prefs = await SharedPreferences.getInstance();
           await prefs.setString('pref_sync_protocol', 'bluetooth');
+          if (_bleService.connectedDeviceAddress != null) {
+            _lastBleDeviceId = _bleService.connectedDeviceAddress;
+            await prefs.setString('pref_last_ble_device_id', _lastBleDeviceId!);
+          }
+          if (_bleService.connectedDeviceName != null) {
+            _lastBleDeviceName = _bleService.connectedDeviceName;
+            await prefs.setString('pref_last_ble_device_name', _lastBleDeviceName!);
+          }
         } catch (_) {}
         stopPolling();
         syncTimeToDevice();
@@ -339,8 +394,35 @@ class TrackerProvider extends ChangeNotifier {
     } else {
       stopPolling();
       _isOnline = _bleService.isConnected;
+      if (!_bleService.isConnected && _lastBleDeviceId != null && _lastBleDeviceId!.isNotEmpty) {
+        debugPrint('[TrackerProvider] Switched to Bluetooth mode: Auto-connecting $_lastBleDeviceId...');
+        unawaited(_bleService.connectWithId(_lastBleDeviceId!));
+      }
       notifyListeners();
     }
+  }
+
+  Future<bool> connectBle(BluetoothDevice device) async {
+    final ok = await _bleService.connect(device);
+    if (ok) {
+      _lastBleDeviceId = device.remoteId.str;
+      _lastBleDeviceName = device.platformName.isNotEmpty ? device.platformName : 'CRANIUM-X1';
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('pref_last_ble_device_id', _lastBleDeviceId!);
+      await prefs.setString('pref_last_ble_device_name', _lastBleDeviceName!);
+      await setSyncProtocol(SyncProtocol.bluetooth);
+    }
+    return ok;
+  }
+
+  Future<void> forgetBleDevice() async {
+    await _bleService.disconnect(clearTarget: true);
+    _lastBleDeviceId = null;
+    _lastBleDeviceName = null;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('pref_last_ble_device_id');
+    await prefs.remove('pref_last_ble_device_name');
+    notifyListeners();
   }
 
   void startPolling() {
@@ -586,22 +668,36 @@ class TrackerProvider extends ChangeNotifier {
       }
 
       // 2. Try BLE auto-connect
-      debugPrint('[TrackerProvider] Away from home: Attempting BLE auto-connect to CRANIUM-X1...');
+      if (_lastBleDeviceId != null && _lastBleDeviceId!.isNotEmpty) {
+        debugPrint('[TrackerProvider] Away from home: Trying direct connection to saved device $_lastBleDeviceId...');
+        final ok = await _bleService.connectWithId(_lastBleDeviceId!);
+        if (ok) {
+          _protocol = SyncProtocol.bluetooth;
+          _isOnline = true;
+          _consecutiveWifiFailures = 0;
+          await syncTimeToDevice();
+          notifyListeners();
+          return;
+        }
+      }
+
+      debugPrint('[TrackerProvider] Away from home: Scanning for Cranium BLE...');
       await _bleService.startScan(timeout: const Duration(seconds: 4));
-      final scanSubscription = _bleService.scanResults.listen((results) async {
-        for (final r in results) {
-          final name = r.device.platformName.toUpperCase();
-          if (name.contains('CRANIUM') || name.contains('DESKTRACKER') || name.contains('X1')) {
-            await _bleService.stopScan();
-            final ok = await _bleService.connect(r.device);
-            if (ok) {
-              _protocol = SyncProtocol.bluetooth;
-              _isOnline = true;
-              _consecutiveWifiFailures = 0;
-              await syncTimeToDevice();
-              notifyListeners();
-            }
-            break;
+      StreamSubscription? scanSubscription;
+      bool connected = false;
+      scanSubscription = _bleService.craniumScanResults.listen((results) async {
+        if (connected || _bleService.isConnected) return;
+        if (results.isNotEmpty) {
+          connected = true;
+          await scanSubscription?.cancel();
+          await _bleService.stopScan();
+          final ok = await _bleService.connect(results.first.device);
+          if (ok) {
+            _protocol = SyncProtocol.bluetooth;
+            _isOnline = true;
+            _consecutiveWifiFailures = 0;
+            await syncTimeToDevice();
+            notifyListeners();
           }
         }
       });
@@ -616,17 +712,48 @@ class TrackerProvider extends ChangeNotifier {
     }
   }
 
+  Future<bool> _dispatchDeviceCommand({
+    required Map<String, dynamic> bleCommand,
+    Future<dynamic> Function()? wifiFallback,
+  }) async {
+    if (_bleService.isConnected) {
+      try {
+        final ok = await _bleService.sendCommand(bleCommand);
+        if (ok) return true;
+      } catch (e) {
+        debugPrint('[TrackerProvider] BLE sendCommand error: $e');
+      }
+    }
+
+    if (_protocol == SyncProtocol.bluetooth && !_bleService.isConnected && _lastBleDeviceId != null && _lastBleDeviceId!.isNotEmpty) {
+      unawaited(_bleService.connectWithId(_lastBleDeviceId!));
+    }
+
+    if (wifiFallback != null) {
+      if ((_protocol == SyncProtocol.wifi && _isOnline) ||
+          (_protocol == SyncProtocol.bluetooth && !_bleService.isConnected && _isOnline)) {
+        try {
+          await wifiFallback();
+          return true;
+        } catch (e) {
+          debugPrint('[TrackerProvider] Wi-Fi command error: $e');
+        }
+      }
+    }
+
+    return false;
+  }
+
   Future<bool> syncTimeToDevice() async {
     final nowSeconds = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     debugPrint('[TrackerProvider] Syncing phone RTC time ($nowSeconds) to ESP32...');
-    if (_protocol == SyncProtocol.bluetooth || _bleService.isConnected) {
-      return await _bleService.sendCommand({
+    return await _dispatchDeviceCommand(
+      bleCommand: {
         'action': 'sync_time',
         'epoch': nowSeconds,
-      });
-    } else {
-      return await _apiService.syncTime(nowSeconds);
-    }
+      },
+      wifiFallback: () => _apiService.syncTime(nowSeconds),
+    );
   }
 
   Future<bool> togglePowerBankKeepAlive([bool? targetState]) async {
@@ -634,16 +761,13 @@ class TrackerProvider extends ChangeNotifier {
     _status = _status.copyWith(powerbankKeepAlive: newState);
     notifyListeners();
 
-    if (_protocol == SyncProtocol.bluetooth || _bleService.isConnected) {
-      final ok = await _bleService.sendCommand({
+    return await _dispatchDeviceCommand(
+      bleCommand: {
         'action': 'powerbank',
         'enabled': newState,
-      });
-      return ok;
-    } else {
-      final ok = await _apiService.setPowerBankKeepAlive(newState);
-      return ok;
-    }
+      },
+      wifiFallback: () => _apiService.setPowerBankKeepAlive(newState),
+    );
   }
 
   // --- Task Operations ---
@@ -666,18 +790,13 @@ class TrackerProvider extends ChangeNotifier {
     notifyListeners();
     _saveCachedStatus();
 
-    if (_bleService.isConnected || _protocol == SyncProtocol.bluetooth) {
-      if (_bleService.isConnected) {
-        try {
-          await _bleService.sendCommand({
-            'action': 'add_task',
-            'text': trimmed,
-            'stars': stars.clamp(1, 3),
-          });
-        } catch (_) {}
-      }
-    } else if (_isOnline && _protocol == SyncProtocol.wifi) {
-      try {
+    await _dispatchDeviceCommand(
+      bleCommand: {
+        'action': 'add_task',
+        'text': trimmed,
+        'stars': stars.clamp(1, 3),
+      },
+      wifiFallback: () async {
         final serverId = await _apiService.addTask(trimmed, stars);
         if (serverId != null && serverId != tempId) {
           final idx = _tasks.indexWhere((t) => t.id == tempId);
@@ -693,8 +812,8 @@ class TrackerProvider extends ChangeNotifier {
             _saveCachedStatus();
           }
         }
-      } catch (_) {}
-    }
+      },
+    );
   }
 
   Future<void> toggleTask(int id) async {
@@ -712,20 +831,13 @@ class TrackerProvider extends ChangeNotifier {
     notifyListeners();
     _saveCachedStatus();
 
-    if (_bleService.isConnected || _protocol == SyncProtocol.bluetooth) {
-      if (_bleService.isConnected) {
-        try {
-          await _bleService.sendCommand({
-            'action': 'toggle_task',
-            'id': id,
-          });
-        } catch (_) {}
-      }
-    } else if (_isOnline && _protocol == SyncProtocol.wifi) {
-      try {
-        await _apiService.toggleTask(id);
-      } catch (_) {}
-    }
+    await _dispatchDeviceCommand(
+      bleCommand: {
+        'action': 'toggle_task',
+        'id': id,
+      },
+      wifiFallback: () => _apiService.toggleTask(id),
+    );
   }
 
   Future<void> deleteTask(int id) async {
@@ -736,20 +848,13 @@ class TrackerProvider extends ChangeNotifier {
     notifyListeners();
     _saveCachedStatus();
 
-    if (_bleService.isConnected || _protocol == SyncProtocol.bluetooth) {
-      if (_bleService.isConnected) {
-        try {
-          await _bleService.sendCommand({
-            'action': 'delete_task',
-            'id': id,
-          });
-        } catch (_) {}
-      }
-    } else if (_isOnline && _protocol == SyncProtocol.wifi) {
-      try {
-        await _apiService.deleteTask(id);
-      } catch (_) {}
-    }
+    await _dispatchDeviceCommand(
+      bleCommand: {
+        'action': 'delete_task',
+        'id': id,
+      },
+      wifiFallback: () => _apiService.deleteTask(id),
+    );
   }
 
   Future<void> updateTask(int id, {String? text, int? stars, bool? done}) async {
@@ -792,17 +897,12 @@ class TrackerProvider extends ChangeNotifier {
     notifyListeners();
     _saveCachedStatus();
 
-    if (_bleService.isConnected || _protocol == SyncProtocol.bluetooth) {
-      if (_bleService.isConnected) {
-        try {
-          await _bleService.sendCommand({
-            'action': 'add_reminder',
-            'text': trimmed,
-          });
-        } catch (_) {}
-      }
-    } else if (_isOnline && _protocol == SyncProtocol.wifi) {
-      try {
+    await _dispatchDeviceCommand(
+      bleCommand: {
+        'action': 'add_reminder',
+        'text': trimmed,
+      },
+      wifiFallback: () async {
         final serverId = await _apiService.addReminder(trimmed);
         if (serverId != null && serverId != tempId) {
           final idx = _reminders.indexWhere((r) => r.id == tempId);
@@ -812,8 +912,8 @@ class TrackerProvider extends ChangeNotifier {
             _saveCachedStatus();
           }
         }
-      } catch (_) {}
-    }
+      },
+    );
   }
 
   Future<void> deleteReminder(int id) async {
@@ -824,20 +924,13 @@ class TrackerProvider extends ChangeNotifier {
     notifyListeners();
     _saveCachedStatus();
 
-    if (_bleService.isConnected || _protocol == SyncProtocol.bluetooth) {
-      if (_bleService.isConnected) {
-        try {
-          await _bleService.sendCommand({
-            'action': 'delete_reminder',
-            'id': id,
-          });
-        } catch (_) {}
-      }
-    } else if (_isOnline && _protocol == SyncProtocol.wifi) {
-      try {
-        await _apiService.deleteReminder(id);
-      } catch (_) {}
-    }
+    await _dispatchDeviceCommand(
+      bleCommand: {
+        'action': 'delete_reminder',
+        'id': id,
+      },
+      wifiFallback: () => _apiService.deleteReminder(id),
+    );
   }
 
   Future<void> updateReminder(int id, String text) async {
@@ -884,20 +977,17 @@ class TrackerProvider extends ChangeNotifier {
     notifyListeners();
     _saveCachedStatus();
 
-    if (_protocol == SyncProtocol.bluetooth || _bleService.isConnected) {
-      try {
-        await _bleService.sendCommand({
-          'action': 'add_section',
-          'name': trimmed,
-          'isNegative': isNegative,
-        });
-      } catch (_) {}
-    } else if (_isOnline && _protocol == SyncProtocol.wifi) {
-      try {
+    await _dispatchDeviceCommand(
+      bleCommand: {
+        'action': 'add_section',
+        'name': trimmed,
+        'isNegative': isNegative,
+      },
+      wifiFallback: () async {
         await _apiService.addSection(trimmed, isNegative: isNegative);
         await refreshData();
-      } catch (_) {}
-    }
+      },
+    );
     return true;
   }
 
@@ -931,20 +1021,17 @@ class TrackerProvider extends ChangeNotifier {
     notifyListeners();
     _saveCachedStatus();
 
-    if (_protocol == SyncProtocol.bluetooth || _bleService.isConnected) {
-      try {
-        await _bleService.sendCommand({
-          'action': 'toggle_negative',
-          'id': id,
-          'isNegative': isNegative,
-        });
-      } catch (_) {}
-    } else if (_isOnline && _protocol == SyncProtocol.wifi) {
-      try {
+    await _dispatchDeviceCommand(
+      bleCommand: {
+        'action': 'toggle_negative',
+        'id': id,
+        'isNegative': isNegative,
+      },
+      wifiFallback: () async {
         await _apiService.updateSectionNegative(id, isNegative);
         await refreshData();
-      } catch (_) {}
-    }
+      },
+    );
     return true;
   }
 
@@ -964,19 +1051,16 @@ class TrackerProvider extends ChangeNotifier {
     notifyListeners();
     _saveCachedStatus();
 
-    if (_protocol == SyncProtocol.bluetooth || _bleService.isConnected) {
-      try {
-        await _bleService.sendCommand({
-          'action': 'delete_section',
-          'id': id,
-        });
-      } catch (_) {}
-    } else if (_isOnline && _protocol == SyncProtocol.wifi) {
-      try {
+    await _dispatchDeviceCommand(
+      bleCommand: {
+        'action': 'delete_section',
+        'id': id,
+      },
+      wifiFallback: () async {
         await _apiService.deleteSection(id);
         await refreshData();
-      } catch (_) {}
-    }
+      },
+    );
     return true;
   }
 
@@ -991,23 +1075,18 @@ class TrackerProvider extends ChangeNotifier {
     notifyListeners();
     _saveCachedStatus();
 
-    try {
-      if (_bleService.isConnected || _protocol == SyncProtocol.bluetooth) {
-        if (_bleService.isConnected) {
-          await _bleService.sendCommand({
-            'action': 'select',
-            'id': clientId,
-            'index': clientIdx >= 0 ? clientIdx : 0,
-          });
-        }
-      } else if (_isOnline && _protocol == SyncProtocol.wifi) {
+    await _dispatchDeviceCommand(
+      bleCommand: {
+        'action': 'select',
+        'id': clientId,
+        'index': clientIdx >= 0 ? clientIdx : 0,
+      },
+      wifiFallback: () async {
         await _apiService.selectSection(clientId);
         await Future.delayed(const Duration(milliseconds: 100));
         await _pollStatus();
-      }
-    } catch (e) {
-      debugPrint('[TrackerProvider] selectSection error: $e');
-    }
+      },
+    );
   }
 
   Future<void> startSession(int clientId) async {
@@ -1022,21 +1101,14 @@ class TrackerProvider extends ChangeNotifier {
     notifyListeners();
     _saveCachedStatus();
 
-    try {
-      if (_bleService.isConnected || _protocol == SyncProtocol.bluetooth) {
-        if (_bleService.isConnected) {
-          await _bleService.sendCommand({
-            'action': 'start',
-            'id': clientId,
-            'index': clientIdx >= 0 ? clientIdx : 0,
-          });
-        }
-      } else if (_isOnline && _protocol == SyncProtocol.wifi) {
-        await _apiService.startSession(clientId);
-      }
-    } catch (e) {
-      debugPrint('[TrackerProvider] startSession error: $e');
-    }
+    await _dispatchDeviceCommand(
+      bleCommand: {
+        'action': 'start',
+        'id': clientId,
+        'index': clientIdx >= 0 ? clientIdx : 0,
+      },
+      wifiFallback: () => _apiService.startSession(clientId),
+    );
   }
 
   Future<void> pauseSession() async {
@@ -1045,17 +1117,10 @@ class TrackerProvider extends ChangeNotifier {
     notifyListeners();
     _saveCachedStatus();
 
-    try {
-      if (_bleService.isConnected || _protocol == SyncProtocol.bluetooth) {
-        if (_bleService.isConnected) {
-          await _bleService.sendCommand({'action': 'pause'});
-        }
-      } else if (_isOnline && _protocol == SyncProtocol.wifi) {
-        await _apiService.pauseSession();
-      }
-    } catch (e) {
-      debugPrint('[TrackerProvider] pauseSession error: $e');
-    }
+    await _dispatchDeviceCommand(
+      bleCommand: {'action': 'pause'},
+      wifiFallback: () => _apiService.pauseSession(),
+    );
   }
 
   Future<void> resumeSession() async {
@@ -1064,17 +1129,10 @@ class TrackerProvider extends ChangeNotifier {
     notifyListeners();
     _saveCachedStatus();
 
-    try {
-      if (_bleService.isConnected || _protocol == SyncProtocol.bluetooth) {
-        if (_bleService.isConnected) {
-          await _bleService.sendCommand({'action': 'resume'});
-        }
-      } else if (_isOnline && _protocol == SyncProtocol.wifi) {
-        await _apiService.resumeSession();
-      }
-    } catch (e) {
-      debugPrint('[TrackerProvider] resumeSession error: $e');
-    }
+    await _dispatchDeviceCommand(
+      bleCommand: {'action': 'resume'},
+      wifiFallback: () => _apiService.resumeSession(),
+    );
   }
 
   Future<void> stopSession() async {
@@ -1112,28 +1170,20 @@ class TrackerProvider extends ChangeNotifier {
     notifyListeners();
     _saveCachedStatus();
 
-    try {
-      if (_bleService.isConnected || _protocol == SyncProtocol.bluetooth) {
-        if (_bleService.isConnected) {
-          await _bleService.sendCommand({'action': 'stop'});
-        }
-      } else if (_isOnline && _protocol == SyncProtocol.wifi) {
-        await _apiService.stopSession();
-      }
-    } catch (e) {
-      debugPrint('[TrackerProvider] stopSession error: $e');
-    }
+    await _dispatchDeviceCommand(
+      bleCommand: {'action': 'stop'},
+      wifiFallback: () => _apiService.stopSession(),
+    );
   }
 
   Future<void> triggerStressBuster() async {
-    if (_bleService.isConnected || _protocol == SyncProtocol.bluetooth) {
-      if (_bleService.isConnected) {
-        await _bleService.sendCommand({'action': 'stress_buster'});
-      }
-    } else if (_isOnline && _protocol == SyncProtocol.wifi) {
-      await _apiService.triggerStressBuster();
-      await _pollStatus();
-    }
+    await _dispatchDeviceCommand(
+      bleCommand: {'action': 'stress_buster'},
+      wifiFallback: () async {
+        await _apiService.triggerStressBuster();
+        await _pollStatus();
+      },
+    );
   }
 
   Future<void> adjustRep({required bool increment}) async {
@@ -1150,27 +1200,21 @@ class TrackerProvider extends ChangeNotifier {
     notifyListeners();
     _saveCachedStatus();
 
-    try {
-      if (_bleService.isConnected || _protocol == SyncProtocol.bluetooth) {
-        if (_bleService.isConnected) {
-          await _bleService.sendCommand({'action': increment ? 'rep_plus' : 'rep_minus'});
-        }
-      } else if (_isOnline && _protocol == SyncProtocol.wifi) {
-        await _apiService.adjustRep(increment: increment);
-      }
-    } catch (e) {
-      debugPrint('[TrackerProvider] adjustRep error: $e');
-    }
+    await _dispatchDeviceCommand(
+      bleCommand: {'action': increment ? 'rep_plus' : 'rep_minus'},
+      wifiFallback: () => _apiService.adjustRep(increment: increment),
+    );
   }
 
   Future<void> setBrightness(int val) async {
-    if (_bleService.isConnected || _protocol == SyncProtocol.bluetooth) {
-      if (_bleService.isConnected) {
-        await _bleService.sendCommand({'action': 'set_brightness', 'level': val});
-      }
-    } else if (_isOnline && _protocol == SyncProtocol.wifi) {
-      await _apiService.setBrightness(val);
-    }
+    _status = _status.copyWith(brightness: val);
+    notifyListeners();
+    _saveCachedStatus();
+
+    await _dispatchDeviceCommand(
+      bleCommand: {'action': 'set_brightness', 'level': val},
+      wifiFallback: () => _apiService.setBrightness(val),
+    );
   }
 
   // --- Hydration & Stand/Stretch Wellness Reminders ---
@@ -1185,17 +1229,10 @@ class TrackerProvider extends ChangeNotifier {
     notifyListeners();
     _saveCachedStatus();
 
-    if (_bleService.isConnected || _protocol == SyncProtocol.bluetooth) {
-      if (_bleService.isConnected) {
-        try {
-          await _bleService.sendCommand({'action': 'wellness', 'enabled': nextState});
-        } catch (_) {}
-      }
-    } else if (_isOnline && _protocol == SyncProtocol.wifi) {
-      try {
-        await _apiService.updateWellness(enabled: nextState);
-      } catch (_) {}
-    }
+    await _dispatchDeviceCommand(
+      bleCommand: {'action': 'wellness', 'enabled': nextState},
+      wifiFallback: () => _apiService.updateWellness(enabled: nextState),
+    );
   }
 
   Future<void> setWellnessInterval(int minutes) async {
@@ -1204,17 +1241,10 @@ class TrackerProvider extends ChangeNotifier {
     notifyListeners();
     _saveCachedStatus();
 
-    if (_bleService.isConnected || _protocol == SyncProtocol.bluetooth) {
-      if (_bleService.isConnected) {
-        try {
-          await _bleService.sendCommand({'action': 'wellness', 'interval': clamped});
-        } catch (_) {}
-      }
-    } else if (_isOnline && _protocol == SyncProtocol.wifi) {
-      try {
-        await _apiService.updateWellness(interval: clamped);
-      } catch (_) {}
-    }
+    await _dispatchDeviceCommand(
+      bleCommand: {'action': 'wellness', 'interval': clamped},
+      wifiFallback: () => _apiService.updateWellness(interval: clamped),
+    );
   }
 
   Future<void> setWellnessMode(int mode) async {
@@ -1223,59 +1253,34 @@ class TrackerProvider extends ChangeNotifier {
     notifyListeners();
     _saveCachedStatus();
 
-    if (_bleService.isConnected || _protocol == SyncProtocol.bluetooth) {
-      if (_bleService.isConnected) {
-        try {
-          await _bleService.sendCommand({'action': 'wellness', 'mode': clamped});
-        } catch (_) {}
-      }
-    } else if (_isOnline && _protocol == SyncProtocol.wifi) {
-      try {
-        await _apiService.updateWellness(mode: clamped);
-      } catch (_) {}
-    }
+    await _dispatchDeviceCommand(
+      bleCommand: {'action': 'wellness', 'mode': clamped},
+      wifiFallback: () => _apiService.updateWellness(mode: clamped),
+    );
   }
 
   Future<void> testWellnessAlert({int kind = 0}) async {
-    if (_bleService.isConnected || _protocol == SyncProtocol.bluetooth) {
-      if (_bleService.isConnected) {
-        try {
-          await _bleService.sendCommand({'action': 'test_wellness', 'kind': kind});
-        } catch (_) {}
-      }
-    } else if (_isOnline && _protocol == SyncProtocol.wifi) {
-      try {
-        await _apiService.testWellnessAlert(kind: kind);
-      } catch (_) {}
-    }
+    await _dispatchDeviceCommand(
+      bleCommand: {'action': 'test_wellness', 'kind': kind},
+      wifiFallback: () => _apiService.testWellnessAlert(kind: kind),
+    );
   }
 
   // --- Factory Data Reset ---
 
   Future<bool> resetAllData() async {
-    bool ok = false;
-    try {
-      if (_bleService.isConnected || _protocol == SyncProtocol.bluetooth) {
-        if (_bleService.isConnected) {
-          ok = await _bleService.sendCommand({'action': 'reset_all'});
-        } else {
-          ok = true;
-        }
-      } else {
-        ok = await _apiService.resetAll();
-      }
+    bool ok = await _dispatchDeviceCommand(
+      bleCommand: {'action': 'reset_all'},
+      wifiFallback: () => _apiService.resetAll(),
+    );
 
-      if (ok) {
-        _status = const DeviceStatus();
-        _tasks.clear();
-        _reminders.clear();
-        notifyListeners();
-        if (_protocol == SyncProtocol.wifi) {
-          await refreshData();
-        }
-      }
-    } catch (e) {
-      debugPrint('[TrackerProvider] Reset error: $e');
+    _status = const DeviceStatus();
+    _tasks.clear();
+    _reminders.clear();
+    notifyListeners();
+    _saveCachedStatus();
+    if (_protocol == SyncProtocol.wifi) {
+      await refreshData();
     }
     return ok;
   }

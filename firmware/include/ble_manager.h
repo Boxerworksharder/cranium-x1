@@ -54,11 +54,14 @@ class ServerCallbacks : public BLEServerCallbacks {
 public:
     bool* connectedPtr;
     bool* restartAdvPtr;
-    ServerCallbacks(bool* conn, bool* restartAdv) : connectedPtr(conn), restartAdvPtr(restartAdv) {}
+    unsigned long* disconnectMillisPtr;
+    ServerCallbacks(bool* conn, bool* restartAdv, unsigned long* discMillis) 
+        : connectedPtr(conn), restartAdvPtr(restartAdv), disconnectMillisPtr(discMillis) {}
 
     void onConnect(BLEServer* pServer) override {
         *connectedPtr = true;
         *restartAdvPtr = false;
+        if (disconnectMillisPtr) *disconnectMillisPtr = 0;
         Serial.println("[BLE] >> Client Connected via Phone / Companion App!");
         HapticManager::trigger(40);
     }
@@ -109,7 +112,7 @@ public:
         pSecurity->setKeySize(16);
 
         pServer = BLEDevice::createServer();
-        pServer->setCallbacks(new ServerCallbacks(&isConnected, &restartAdvRequested));
+        pServer->setCallbacks(new ServerCallbacks(&isConnected, &restartAdvRequested, &disconnectMillis));
 
         // 2. Tactical Focus Engine Primary Service
         BLEService* pService = pServer->createService(SERVICE_UUID);
@@ -183,6 +186,10 @@ public:
 
     void broadcastStatus() {
         if (!isConnected || !pTelemetryChar || !tracker) return;
+        if (pServer && pServer->getConnectedCount() == 0) {
+            isConnected = false;
+            return;
+        }
 
         unsigned long totalDwSecs = 0;
         int pct = 0;

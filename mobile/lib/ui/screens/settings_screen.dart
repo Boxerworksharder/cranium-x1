@@ -820,59 +820,151 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _buildBleControls(TrackerProvider tracker) {
     final ble = tracker.bleService;
     final isConnected = ble.isConnected;
+    final isReconnecting = ble.isAutoReconnecting;
+    final hasPairedDevice = tracker.lastBleDeviceId != null && tracker.lastBleDeviceId!.isNotEmpty;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // Bluetooth Adapter State Warning
+        StreamBuilder<BluetoothAdapterState>(
+          stream: ble.adapterState,
+          initialData: BluetoothAdapterState.unknown,
+          builder: (context, snap) {
+            final state = snap.data;
+            if (state == BluetoothAdapterState.off) {
+              return Container(
+                margin: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppTheme.dangerCrimson.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(AppTheme.radiusControl),
+                  border: Border.all(color: AppTheme.dangerCrimson.withOpacity(0.5)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.bluetooth_disabled_rounded, color: AppTheme.dangerCrimson, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'BLUETOOTH IS DISABLED: Enable Bluetooth in phone settings to link to Cranium X1.',
+                        style: TextStyle(fontSize: 10.5, color: AppTheme.dangerCrimson, fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }
+            return const SizedBox();
+          },
+        ),
+
+        // Device Link Status Card
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
             color: AppTheme.surfaceRecessed,
             borderRadius: BorderRadius.circular(AppTheme.radiusControl),
             border: Border.all(
-              color: isConnected ? AppTheme.cyanTelemetry : AppTheme.hairlineSeam,
+              color: isConnected
+                  ? AppTheme.cyanTelemetry
+                  : (isReconnecting ? AppTheme.orangeFlame : AppTheme.hairlineSeam),
             ),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
+              Expanded(
+                child: Row(
+                  children: [
+                    Icon(
+                      isConnected
+                          ? Icons.bluetooth_connected_rounded
+                          : (isReconnecting ? Icons.bluetooth_searching_rounded : Icons.bluetooth_rounded),
+                      color: isConnected
+                          ? AppTheme.cyanTelemetry
+                          : (isReconnecting ? AppTheme.orangeFlame : AppTheme.textMuted),
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            isConnected
+                                ? 'LINKED: ${ble.connectedDeviceName ?? tracker.lastBleDeviceName ?? "CRANIUM-X1"}'
+                                : (isReconnecting
+                                    ? 'RECONNECTING: ${tracker.lastBleDeviceName ?? "CRANIUM-X1"}'
+                                    : (hasPairedDevice
+                                        ? 'PAIRED: ${tracker.lastBleDeviceName ?? "CRANIUM-X1"}'
+                                        : 'BLUETOOTH STANDBY')),
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                              color: isConnected
+                                  ? AppTheme.cyanTelemetry
+                                  : (isReconnecting ? AppTheme.orangeFlame : AppTheme.textPrimary),
+                              fontFamily: 'monospace',
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          Text(
+                            isConnected
+                                ? '1Hz Ground Truth Telemetry Stream Active'
+                                : (isReconnecting
+                                    ? 'Watchdog auto-retry active • Keeping sync ready'
+                                    : (hasPairedDevice
+                                        ? 'Saved ID: ${tracker.lastBleDeviceId}'
+                                        : 'Ready to scan and pair')),
+                            style: TextStyle(fontSize: 9.5, color: AppTheme.textMuted),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
               Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
-                    Icons.bluetooth_connected_rounded,
-                    color: isConnected ? AppTheme.cyanTelemetry : AppTheme.textMuted,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 8),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        isConnected ? 'LINKED: ${ble.connectedDeviceName ?? "Cranium-X1"}' : 'BLUETOOTH STANDBY',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w800,
-                          color: isConnected ? AppTheme.cyanTelemetry : AppTheme.textMuted,
-                          fontFamily: 'monospace',
-                        ),
-                      ),
-                      Text(
-                        isConnected ? '1Hz Real-Time Telemetry Stream' : 'Ready to scan and pair',
-                        style: TextStyle(fontSize: 9.5, color: AppTheme.textMuted),
-                      ),
-                    ],
-                  ),
+                  if (isConnected)
+                    TextButton(
+                      onPressed: () async {
+                        AppTheme.hapticAction();
+                        await ble.disconnect();
+                        await tracker.setSyncProtocol(SyncProtocol.wifi);
+                      },
+                      child: Text('DISCONNECT', style: TextStyle(fontSize: 10, color: AppTheme.dangerCrimson, fontWeight: FontWeight.bold)),
+                    )
+                  else if (hasPairedDevice) ...[
+                    TextButton(
+                      onPressed: _isConnectingBle
+                          ? null
+                          : () async {
+                              AppTheme.hapticAction();
+                              setState(() => _isConnectingBle = true);
+                              final ok = await ble.connectWithId(tracker.lastBleDeviceId!);
+                              if (mounted) {
+                                setState(() => _isConnectingBle = false);
+                                if (ok) {
+                                  await tracker.setSyncProtocol(SyncProtocol.bluetooth);
+                                }
+                              }
+                            },
+                      child: Text(_isConnectingBle ? '...' : 'CONNECT', style: TextStyle(fontSize: 10, color: AppTheme.cyanTelemetry, fontWeight: FontWeight.bold)),
+                    ),
+                    TextButton(
+                      onPressed: () async {
+                        AppTheme.hapticAction();
+                        await tracker.forgetBleDevice();
+                      },
+                      child: Text('FORGET', style: TextStyle(fontSize: 10, color: AppTheme.dangerCrimson, fontWeight: FontWeight.bold)),
+                    ),
+                  ],
                 ],
               ),
-              if (isConnected)
-                TextButton(
-                  onPressed: () async {
-                    AppTheme.hapticAction();
-                    await ble.disconnect();
-                    await tracker.setSyncProtocol(SyncProtocol.wifi);
-                  },
-                  child: Text('DISCONNECT', style: TextStyle(fontSize: 10, color: AppTheme.dangerCrimson, fontWeight: FontWeight.bold)),
-                ),
             ],
           ),
         ),
@@ -938,7 +1030,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ...results.map((r) {
                   final name = r.device.platformName.isNotEmpty ? r.device.platformName : r.advertisementData.advName;
                   final displayName = name.isNotEmpty ? name : 'Unknown Device';
-                  final isTarget = displayName.toLowerCase().contains('cranium') || displayName.toLowerCase().contains('titiksha');
+                  final isTarget = displayName.toLowerCase().contains('cranium') || displayName.toLowerCase().contains('titiksha') || displayName.toLowerCase().contains('x1');
 
                   return Container(
                     margin: const EdgeInsets.only(bottom: 6),
@@ -953,23 +1045,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              displayName,
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w800,
-                                color: isTarget ? AppTheme.orangeFlame : AppTheme.textPrimary,
-                                fontFamily: 'monospace',
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                displayName,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                  color: isTarget ? AppTheme.orangeFlame : AppTheme.textPrimary,
+                                  fontFamily: 'monospace',
+                                ),
+                                overflow: TextOverflow.ellipsis,
                               ),
-                            ),
-                            Text(
-                              'RSSI: ${r.rssi} dBm  •  ${r.device.remoteId.str}',
-                              style: TextStyle(fontSize: 9.5, color: AppTheme.textMuted),
-                            ),
-                          ],
+                              Text(
+                                'RSSI: ${r.rssi} dBm  •  ${r.device.remoteId.str}',
+                                style: TextStyle(fontSize: 9.5, color: AppTheme.textMuted),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
                         ),
                         ElevatedButton(
                           style: ElevatedButton.styleFrom(
@@ -984,15 +1080,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               : () async {
                                   final messenger = ScaffoldMessenger.of(context);
                                   setState(() => _isConnectingBle = true);
-                                  final ok = await ble.connect(r.device);
+                                  final ok = await tracker.connectBle(r.device);
                                   if (mounted) {
                                     setState(() => _isConnectingBle = false);
-                                    if (ok) {
-                                      await tracker.setSyncProtocol(SyncProtocol.bluetooth);
-                                    }
                                     messenger.showSnackBar(
                                       SnackBar(
-                                        content: Text(ok ? '✓ Connected to $displayName via Bluetooth!' : 'Failed to connect to $displayName'),
+                                        content: Text(ok ? '✓ Connected & Paired with $displayName!' : 'Failed to connect to $displayName'),
                                         backgroundColor: ok ? AppTheme.cyanTelemetry : AppTheme.dangerCrimson,
                                       ),
                                     );

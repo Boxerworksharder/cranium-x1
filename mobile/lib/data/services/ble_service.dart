@@ -20,29 +20,64 @@ class BleService {
   final _connectionStateController = StreamController<bool>.broadcast();
   Stream<bool> get connectionStateStream => _connectionStateController.stream;
 
+  bool _isConnecting = false;
+  bool _isAutoReconnecting = false;
+  bool _explicitDisconnect = false;
+  String? _targetDeviceId;
+  Timer? _reconnectTimer;
+  int _reconnectAttempts = 0;
+
   bool get isConnected => _connectedDevice != null;
+  bool get isConnecting => _isConnecting;
+  bool get isAutoReconnecting => _isAutoReconnecting;
   String? get connectedDeviceName => _connectedDevice?.platformName;
   String? get connectedDeviceAddress => _connectedDevice?.remoteId.str;
+  String? get targetDeviceId => _targetDeviceId;
 
+  Stream<BluetoothAdapterState> get adapterState => FlutterBluePlus.adapterState;
   Stream<List<ScanResult>> get scanResults => FlutterBluePlus.scanResults;
   Stream<bool> get isScanning => FlutterBluePlus.isScanning;
+
+  /// Stream of scan results matching Cranium / Titiksha / X1 devices or matching service UUID.
+  /// Android hardware filters drop scan-response packets, so we filter safely in Dart.
+  Stream<List<ScanResult>> get craniumScanResults => FlutterBluePlus.scanResults.map((results) {
+        return results.where((r) {
+          final name = (r.advertisementData.advName.isNotEmpty
+                  ? r.advertisementData.advName
+                  : r.device.platformName)
+              .toUpperCase();
+          final hasService = r.advertisementData.serviceUuids.any(
+            (u) => u.toString().toLowerCase() == serviceUuid.toLowerCase(),
+          );
+          return name.contains('CRANIUM') ||
+              name.contains('TITIKSHA') ||
+              name.contains('X1') ||
+              name.contains('DESKTRACKER') ||
+              hasService;
+        }).toList();
+      });
+
+  void setTargetDeviceId(String? id) {
+    _targetDeviceId = id;
+  }
 
   Future<void> startScan({Duration timeout = const Duration(seconds: 5)}) async {
     try {
       if (await FlutterBluePlus.isScanning.first) {
         await FlutterBluePlus.stopScan();
       }
+      // Note: We do NOT pass withServices on Android because many BLE chipsets
+      // only evaluate primary ADV_IND packets and drop SCAN_RSP packets containing the custom UUID.
       await FlutterBluePlus.startScan(
         timeout: timeout,
-        withServices: [Guid(serviceUuid)],
+        androidUsesFineLocation: false,
       );
     } catch (e) {
       debugPrint('[BLE] Scan error: $e');
-      // Fallback: scan without service filter if device not in scan filter
       try {
         await FlutterBluePlus.startScan(timeout: timeout);
       } catch (e2) {
-        debugPrint('[BLE] Unfiltered scan error: $e2');
+        debugPrint('[BLE] Fallback scan error: $e2');
       }
     }
   }
@@ -53,7 +88,20 @@ class BleService {
     } catch (_) {}
   }
 
+  Future<bool> connectWithId(String remoteId, {String? deviceName}) async {
+    final device = BluetoothDevice.fromId(remoteId);
+    return await connect(device);
+  }
+
   Future<bool> connect(BluetoothDevice device) async {
+    if (_isConnecting) {
+      debugPrint('[BLE] Connection already in progress, ignoring duplicate request.');
+      return false;
+    }
+    _isConnecting = true;
+    _explicitDisconnect = false;
+    _targetDeviceId = device.remoteId.str;
+
     try {
       await stopScan();
       debugPrint('[BLE] Connecting to ${device.platformName} (${device.remoteId})...');
@@ -68,14 +116,20 @@ class BleService {
       } catch (_) {}
 
       _connectedDevice = device;
+      _reconnectAttempts = 0;
+      _reconnectTimer?.cancel();
+      _isAutoReconnecting = false;
 
       // Listen for connection drops
       _connStateSub?.cancel();
       _connStateSub = device.connectionState.listen((state) {
         if (state == BluetoothConnectionState.disconnected) {
-          debugPrint('[BLE] Disconnected from device');
+          debugPrint('[BLE] Disconnected from device (explicit=$_explicitDisconnect)');
           _cleanUp();
           _connectionStateController.add(false);
+          if (!_explicitDisconnect && _targetDeviceId != null) {
+            _scheduleAutoReconnect();
+          }
         } else if (state == BluetoothConnectionState.connected) {
           _connectionStateController.add(true);
         }
@@ -105,11 +159,47 @@ class BleService {
     } catch (e) {
       debugPrint('[BLE] Connection failed: $e');
       _cleanUp();
+      if (!_explicitDisconnect && _targetDeviceId != null) {
+        _scheduleAutoReconnect();
+      }
       return false;
+    } finally {
+      _isConnecting = false;
     }
   }
 
-  Future<void> disconnect() async {
+  void _scheduleAutoReconnect() {
+    if (_explicitDisconnect || _targetDeviceId == null || _isConnecting) return;
+    _reconnectTimer?.cancel();
+    _isAutoReconnecting = true;
+
+    // Exponential backoff: 1s, 2s, 5s, 10s, max 15s
+    const delays = [1, 2, 5, 10, 15];
+    final delaySec = delays[_reconnectAttempts.clamp(0, delays.length - 1)];
+    _reconnectAttempts++;
+
+    debugPrint('[BLE] Auto-reconnect #$_reconnectAttempts scheduled in ${delaySec}s to $_targetDeviceId');
+    _reconnectTimer = Timer(Duration(seconds: delaySec), () async {
+      if (_explicitDisconnect || _targetDeviceId == null || isConnected) return;
+      debugPrint('[BLE] Executing auto-reconnect to $_targetDeviceId...');
+      final ok = await connectWithId(_targetDeviceId!);
+      if (!ok && !_explicitDisconnect && !isConnected) {
+        _scheduleAutoReconnect();
+      }
+    });
+  }
+
+  void cancelAutoReconnect() {
+    _reconnectTimer?.cancel();
+    _isAutoReconnecting = false;
+  }
+
+  Future<void> disconnect({bool clearTarget = true}) async {
+    _explicitDisconnect = true;
+    cancelAutoReconnect();
+    if (clearTarget) {
+      _targetDeviceId = null;
+    }
     try {
       if (_connectedDevice != null) {
         await _connectedDevice!.disconnect();
@@ -222,6 +312,7 @@ class BleService {
   }
 
   void dispose() {
+    cancelAutoReconnect();
     _cleanUp();
     _telemetryController.close();
     _connectionStateController.close();
