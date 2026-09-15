@@ -119,6 +119,15 @@ public:
     bool isDimmed = false;
     uint8_t activeBrightness = 255; // 10 to 255 (OLED SSD1306 contrast)
 
+    // Debounced Flash Persistence State
+    volatile bool isDirty = false;
+    unsigned long lastDirtyMillis = 0;
+
+    void markDirty() {
+        isDirty = true;
+        lastDirtyMillis = millis();
+    }
+
     // 20-Second Guided Breathing Zen Reset State
     unsigned long stressBusterStartMillis = 0;
     unsigned long lastBreathHapticMillis = 0;

@@ -390,7 +390,7 @@ void handleButtons() {
                     PowerManager::keepAliveEnabled = !PowerManager::keepAliveEnabled;
                     HapticManager::pulseTap();
                     triggerStatusLedFlash(100);
-                    StorageManager::saveTrackerData(tracker);
+                    tracker.markDirty();
                     bleManager.broadcastStatus();
                 } else {
                     tracker.activeClientIndex = tracker.menuIndex;
@@ -406,7 +406,7 @@ void handleButtons() {
                     tracker.toggleTask(tracker.tasks[tracker.taskScrollIndex].id);
                     HapticManager::pulseTally();
                     triggerStatusLedFlash(120);
-                    StorageManager::saveTrackerData(tracker);
+                    tracker.markDirty();
                 }
             } else if (tracker.state == STATE_VIEW_REMINDERS) {
                 HapticManager::pulseTap();
@@ -416,7 +416,7 @@ void handleButtons() {
                 }
             } else if (tracker.state == STATE_SET_BRIGHTNESS) {
                 HapticManager::pulseTap();
-                StorageManager::saveTrackerData(tracker);
+                tracker.markDirty();
                 tracker.state = STATE_SELECT_CLIENT;
                 tracker.menuIndex = tracker.activeClientIndex;
             } else if (tracker.state == STATE_VIEW_LOGS) {
@@ -451,7 +451,7 @@ void handleButtons() {
             } else if (tracker.state == STATE_TRACKING || tracker.state == STATE_PAUSED) {
                 HapticManager::pulseStop(); // Distinct stop buzz!
                 tracker.stopAndSave();
-                StorageManager::saveTrackerData(tracker);
+                tracker.markDirty();
                 tracker.state = STATE_SELECT_CLIENT;
                 tracker.menuIndex = tracker.activeClientIndex;
                 previousStateBeforeGlance = STATE_SELECT_CLIENT;
@@ -460,7 +460,7 @@ void handleButtons() {
             } else {
                 // From ANY sub-screen (Tasks, Logs, Summary, Brightness, Wellness): Return directly to Main Page!
                 if (tracker.state == STATE_SET_BRIGHTNESS || tracker.state == STATE_CONFIG_WELLNESS) {
-                    StorageManager::saveTrackerData(tracker);
+                    tracker.markDirty();
                 }
                 tracker.state = STATE_SELECT_CLIENT;
                 tracker.menuIndex = tracker.activeClientIndex;
@@ -489,13 +489,13 @@ void handleButtons() {
                     triggerStatusLedFlash(120);
                     HapticManager::pulseTally(); // Satisfying tactile rep click
                     tracker.incrementTally();
-                    StorageManager::saveTrackerData(tracker);
+                    tracker.markDirty();
                     needsRedraw = true;
                 } else if (tallyEvt == ButtonHandler::LONG_PRESS) {
                     triggerStatusLedFlash(250);
                     HapticManager::pulseTallyMinus();
                     tracker.decrementTally();
-                    StorageManager::saveTrackerData(tracker);
+                    tracker.markDirty();
                     needsRedraw = true;
                 }
             }
@@ -511,7 +511,7 @@ void handleButtons() {
             // Toggles section between DEEP WORK and TIME SINK!
             if (tallyEvt == ButtonHandler::CLICK) {
                 tracker.clients[tracker.menuIndex].isNegative = !tracker.clients[tracker.menuIndex].isNegative;
-                StorageManager::saveTrackerData(tracker);
+                tracker.markDirty();
                 bleManager.requestImmediateBroadcast();
                 HapticManager::pulseTap();
                 triggerStatusLedFlash(120);
@@ -680,6 +680,14 @@ void loop() {
     // 3. Periodic Auto-Flush (Power-Loss Protection)
     if (tracker.state == STATE_TRACKING && (millis() - tracker.lastAutoSaveMillis >= AUTO_SAVE_INTERVAL_MS)) {
         tracker.lastAutoSaveMillis = millis();
+        StorageManager::saveTrackerData(tracker);
+    }
+
+    // 3b. Debounced Persistent Storage Save (Offloaded from Real-Time BLE & Callback Tasks)
+    // Writes after 500ms debounce quiet period, or forces write if waiting > 3 seconds
+    if (tracker.isDirty && ((millis() - tracker.lastDirtyMillis >= 500) || (millis() - tracker.lastDirtyMillis >= 3000))) {
+        TrackerLock lock;
+        tracker.isDirty = false;
         StorageManager::saveTrackerData(tracker);
     }
 

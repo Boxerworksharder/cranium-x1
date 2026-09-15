@@ -58,18 +58,28 @@ public:
     ServerCallbacks(bool* conn, bool* restartAdv, unsigned long* discMillis) 
         : connectedPtr(conn), restartAdvPtr(restartAdv), disconnectMillisPtr(discMillis) {}
 
-    void onConnect(BLEServer* pServer) override {
+    void onConnect(BLEServer* pServer, esp_ble_gatts_cb_param_t *param) override {
         *connectedPtr = true;
         *restartAdvPtr = false;
         if (disconnectMillisPtr) *disconnectMillisPtr = 0;
-        Serial.println("[BLE] >> Client Connected via Phone / Companion App!");
+        if (param) {
+            uint8_t* bda = param->connect.remote_bda;
+            Serial.printf("[BLE] >> Client Connected from %02X:%02X:%02X:%02X:%02X:%02X (conn_id: %d)\n",
+                bda[0], bda[1], bda[2], bda[3], bda[4], bda[5], param->connect.conn_id);
+        } else {
+            Serial.println("[BLE] >> Client Connected via Phone / Companion App!");
+        }
         HapticManager::trigger(40);
     }
 
-    void onDisconnect(BLEServer* pServer) override {
+    void onDisconnect(BLEServer* pServer, esp_ble_gatts_cb_param_t *param) override {
         *connectedPtr = false;
         *restartAdvPtr = true;
-        Serial.println("[BLE] << Client Disconnected. Scheduling advertising restart...");
+        if (param) {
+            Serial.printf("[BLE] << Client Disconnected (reason: 0x%02X). Scheduling advertising restart...\n", param->disconnect.reason);
+        } else {
+            Serial.println("[BLE] << Client Disconnected. Scheduling advertising restart...");
+        }
     }
 };
 
@@ -405,35 +415,35 @@ inline void CommandCallbacks::onWrite(BLECharacteristic* pCharacteristic) {
             needsRedraw = true;
         } else if (strcmp(action, "stop") == 0) {
             tracker->stopAndSave();
-            StorageManager::saveTrackerData(*tracker);
+            tracker->markDirty();
             HapticManager::pulseStop();
             needsRedraw = true;
         } else if (strcmp(action, "rep_plus") == 0 || strcmp(action, "tally_plus") == 0) {
             tracker->incrementTally();
-            StorageManager::saveTrackerData(*tracker);
+            tracker->markDirty();
             HapticManager::pulseTally();
             needsRedraw = true;
         } else if (strcmp(action, "rep_minus") == 0 || strcmp(action, "tally_minus") == 0) {
             tracker->decrementTally();
-            StorageManager::saveTrackerData(*tracker);
+            tracker->markDirty();
             HapticManager::pulseTallyMinus();
             needsRedraw = true;
         } else if (strcmp(action, "goal") == 0) {
             unsigned long newGoal = doc["value"] | 36000;
             if (newGoal >= 1800 && newGoal <= 86400) {
                 tracker->globalDeepWorkGoalSeconds = newGoal;
-                StorageManager::saveTrackerData(*tracker);
+                tracker->markDirty();
                 needsRedraw = true;
             }
         } else if (strcmp(action, "reset_all") == 0) {
             tracker->resetAllData();
-            StorageManager::saveTrackerData(*tracker);
+            tracker->markDirty();
             needsRedraw = true;
         } else if (strcmp(action, "set_brightness") == 0 || strcmp(action, "brightness") == 0) {
             int b = doc["level"] | (doc["value"] | -1);
             if (b >= 10 && b <= 255) {
                 tracker->setBrightness((uint8_t)b);
-                StorageManager::saveTrackerData(*tracker);
+                tracker->markDirty();
                 HapticManager::pulseTap();
                 needsRedraw = true;
             }
@@ -457,14 +467,14 @@ inline void CommandCallbacks::onWrite(BLECharacteristic* pCharacteristic) {
         } else if (strcmp(action, "powerbank") == 0) {
             if (!doc["enabled"].isNull()) {
                 PowerManager::setEnabled(doc["enabled"].as<bool>());
-                StorageManager::saveTrackerData(*tracker);
+                tracker->markDirty();
                 HapticManager::pulseTap();
             }
         } else if (strcmp(action, "add_section") == 0 || strcmp(action, "add_client") == 0) {
             const char* name = doc["name"] | "New Section";
             bool isNegative = doc["isNegative"] | false;
             tracker->addClient(name, isNegative);
-            StorageManager::saveTrackerData(*tracker);
+            tracker->markDirty();
             HapticManager::pulseTap();
             needsRedraw = true;
         } else if (strcmp(action, "toggle_negative") == 0 || strcmp(action, "toggle_section_negative") == 0) {
@@ -477,7 +487,7 @@ inline void CommandCallbacks::onWrite(BLECharacteristic* pCharacteristic) {
                 if (cl.id == targetId) {
                     if (isNeg >= 0) cl.isNegative = (isNeg == 1);
                     else cl.isNegative = !cl.isNegative;
-                    StorageManager::saveTrackerData(*tracker);
+                    tracker->markDirty();
                     HapticManager::pulseTap();
                     needsRedraw = true;
                     break;
@@ -494,7 +504,7 @@ inline void CommandCallbacks::onWrite(BLECharacteristic* pCharacteristic) {
             }
             if (targetId >= 0) {
                 tracker->updateClient(targetId, name, reps, totalSecs, isNeg);
-                StorageManager::saveTrackerData(*tracker);
+                tracker->markDirty();
                 HapticManager::pulseTap();
                 needsRedraw = true;
             }
@@ -502,7 +512,7 @@ inline void CommandCallbacks::onWrite(BLECharacteristic* pCharacteristic) {
             int targetId = doc["id"] | -1;
             if (targetId >= 0 && tracker->clients.size() > 1) {
                 tracker->removeClient(targetId);
-                StorageManager::saveTrackerData(*tracker);
+                tracker->markDirty();
                 HapticManager::pulseTap();
                 needsRedraw = true;
             }
@@ -516,7 +526,7 @@ inline void CommandCallbacks::onWrite(BLECharacteristic* pCharacteristic) {
             if (!doc["mode"].isNull()) {
                 tracker->wellnessMode = doc["mode"].as<int>();
             }
-            StorageManager::saveTrackerData(*tracker);
+            tracker->markDirty();
             HapticManager::pulseTap();
             needsRedraw = true;
         } else if (strcmp(action, "test_wellness") == 0) {
@@ -528,31 +538,31 @@ inline void CommandCallbacks::onWrite(BLECharacteristic* pCharacteristic) {
             const char* text = doc["text"] | "";
             int stars = doc["stars"] | 1;
             tracker->addTask(text, stars);
-            StorageManager::saveTrackerData(*tracker);
+            tracker->markDirty();
             HapticManager::pulseTap();
             needsRedraw = true;
         } else if (strcmp(action, "toggle_task") == 0) {
             int id = doc["id"] | -1;
             if (id >= 0) tracker->toggleTask(id);
-            StorageManager::saveTrackerData(*tracker);
+            tracker->markDirty();
             HapticManager::pulseTap();
             needsRedraw = true;
         } else if (strcmp(action, "delete_task") == 0) {
             int id = doc["id"] | -1;
             if (id >= 0) tracker->deleteTask(id);
-            StorageManager::saveTrackerData(*tracker);
+            tracker->markDirty();
             HapticManager::pulseTap();
             needsRedraw = true;
         } else if (strcmp(action, "add_reminder") == 0) {
             const char* text = doc["text"] | "";
             tracker->addReminder(text);
-            StorageManager::saveTrackerData(*tracker);
+            tracker->markDirty();
             HapticManager::pulseTap();
             needsRedraw = true;
         } else if (strcmp(action, "delete_reminder") == 0) {
             int id = doc["id"] | -1;
             if (id >= 0) tracker->deleteReminder(id);
-            StorageManager::saveTrackerData(*tracker);
+            tracker->markDirty();
             HapticManager::pulseTap();
             needsRedraw = true;
         }
