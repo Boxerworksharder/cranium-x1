@@ -21,8 +21,11 @@ cranium-x1/
     │   ├── data/             # BLE service, HTTP client, JSON/CSV serialization
     │   ├── state/            # Reactive state management (TrackerProvider)
     │   └── ui/               # OLED-styled Cyberpunk HUD widgets & screens
-    └── test/                 # 49 unit, regression & widget test cases
+    └── test/                 # 59 unit, regression & hardware hardening test cases
 ```
+
+[![Release](https://img.shields.io/github/v/release/Boxerworksharder/cranium-x1?style=for-the-badge&color=ff5500)](https://github.com/Boxerworksharder/cranium-x1/releases/tag/v1.3)
+[![Download APK](https://img.shields.io/badge/Download_APK-v1.3_(23.8MB)-00e5ff?style=for-the-badge&logo=android)](https://github.com/Boxerworksharder/cranium-x1/releases/download/v1.3/cranium_x1.apk)
 
 ---
 
@@ -106,7 +109,9 @@ The ESP32 communicates over Bluetooth Low Energy via:
 
 The test suite covers:
 - Streaming BLE packet chunk reassembly across variable MTU packet boundaries.
-- Negative activity & time sink metric isolation.
+- Android cold start auto-reconnect, GATT concurrency mutex, and lifecycle resume RTC sync.
+- BLE scanner filter drops prevention and command routing Wi-Fi fallback.
+- Negative activity & time sink metric isolation and purity calculations.
 - Offline task/reminder persistence.
 - Lossless JSON / CSV export and import validation.
 
