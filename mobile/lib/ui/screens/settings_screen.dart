@@ -746,7 +746,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                     ),
                     const SizedBox(height: 10),
-                    _buildTelemetryRow('APP VERSION', 'v1.5.0 (Build 5)'),
+                    _buildTelemetryRow('APP VERSION', 'v1.6.0 (Build 6)'),
                     _buildTelemetryRow('DEVICE', 'ESP32-C3 SuperMini'),
                     _buildTelemetryRow('DISPLAY', '128x64 SH1106 OLED (I2C)'),
                     _buildTelemetryRow('BLUETOOTH', 'BLE 5.0 GATT (Cranium-X1)'),
