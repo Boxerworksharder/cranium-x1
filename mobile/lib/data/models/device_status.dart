@@ -80,7 +80,7 @@ class DeviceStatus {
     this.totalDeepWorkToday = 0,
     this.totalWasteToday = 0,
     this.focusPurityPct = 100,
-    this.globalGoal = 14400, // 4 hours default
+    this.globalGoal = 36000, // 10 hours default
     this.brightness = 255,
     this.currentStreak = 0,
     this.longestStreak = 0,

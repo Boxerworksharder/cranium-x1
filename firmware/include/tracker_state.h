@@ -436,7 +436,7 @@ public:
                 if (activeClientIndex >= (int)clients.size()) {
                     activeClientIndex = clients.size() - 1;
                 }
-                if (menuIndex >= (int)clients.size() + 1) {
+                if (menuIndex >= (int)clients.size() + 8) {
                     menuIndex = 0;
                 }
                 return true;
@@ -559,7 +559,7 @@ public:
     void nextClient() {
         recordUserActivity();
         if (state == STATE_SELECT_CLIENT) {
-            int total = (int)clients.size() + 4;
+            int total = (int)clients.size() + 8;
             menuIndex = (menuIndex + 1) % total;
         }
     }
@@ -567,7 +567,7 @@ public:
     void prevClient() {
         recordUserActivity();
         if (state == STATE_SELECT_CLIENT) {
-            int total = (int)clients.size() + 4;
+            int total = (int)clients.size() + 8;
             menuIndex = (menuIndex - 1 + total) % total;
         }
     }
@@ -660,14 +660,26 @@ public:
                     if (!c.isNegative) {
                         yesterdayGlobalSeconds += c.totalSecondsToday;
                     }
-                    DateRecord rec;
-                    rec.timestamp = yesterdayStr + " 23:59:59";
-                    rec.dateLabel = yesterdayStr;
-                    rec.seconds = c.totalSecondsToday;
-                    rec.reps = c.tallyCount;
-                    c.history.insert(c.history.begin(), rec);
-                    if (c.history.size() > 50) {
-                        c.history.resize(50);
+                    
+                    long alreadyArchivedSecs = 0;
+                    for (const auto& h : c.history) {
+                        if (h.dateLabel == yesterdayStr) {
+                            alreadyArchivedSecs += h.seconds;
+                        }
+                    }
+                    
+                    long unarchivedSecs = c.totalSecondsToday - alreadyArchivedSecs;
+
+                    if (unarchivedSecs > 0 || c.tallyCount > 0) {
+                        DateRecord rec;
+                        rec.timestamp = yesterdayStr + " 23:59:59";
+                        rec.dateLabel = yesterdayStr;
+                        rec.seconds = unarchivedSecs > 0 ? unarchivedSecs : 0;
+                        rec.reps = c.tallyCount;
+                        c.history.insert(c.history.begin(), rec);
+                        if (c.history.size() > 50) {
+                            c.history.resize(50);
+                        }
                     }
                     
                     c.totalSecondsToday = 0;

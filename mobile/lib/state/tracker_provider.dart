@@ -138,10 +138,10 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
     int totalDuration = 0;
     for (final c in _status.clients) {
       totalSessions += c.history.length;
-      totalDuration += c.totalSecondsToday;
-      for (final h in c.history) {
-        totalDuration += h.seconds;
+      if (c.totalSecondsToday >= 60) {
+        totalSessions += 1; // Count today's ongoing/stopped aggregate as a session if >= 1m
       }
+      totalDuration += c.totalAccumulatedSecs;
     }
     return {
       'sectionsCount': _status.clients.length,
@@ -349,13 +349,13 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
       if (_pendingSyncQueue.isNotEmpty) {
         debugPrint('[TrackerProvider] Flushing ${_pendingSyncQueue.length} pending commands to hardware...');
-        final queueSnapshot = List<Map<String, dynamic>>.from(_pendingSyncQueue);
-        for (final cmd in queueSnapshot) {
+        while (_pendingSyncQueue.isNotEmpty) {
           if (!_bleService.isConnected) break;
+          final cmd = _pendingSyncQueue.first;
           try {
             final ok = await _bleService.sendCommand(cmd);
             if (ok) {
-              _pendingSyncQueue.remove(cmd);
+              _pendingSyncQueue.removeAt(0);
               await _savePendingSyncQueue();
               await Future.delayed(const Duration(milliseconds: 120));
             } else {
@@ -1120,6 +1120,7 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
         'name': trimmed,
         'isNegative': isNegative,
       },
+      queueIfOffline: true,
       wifiFallback: () async {
         await _apiService.addSection(trimmed, isNegative: isNegative);
         await refreshData();
@@ -1164,6 +1165,7 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
         'id': id,
         'isNegative': isNegative,
       },
+      queueIfOffline: true,
       wifiFallback: () async {
         await _apiService.updateSectionNegative(id, isNegative);
         await refreshData();
@@ -1193,6 +1195,7 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
         'action': 'delete_section',
         'id': id,
       },
+      queueIfOffline: true,
       wifiFallback: () async {
         await _apiService.deleteSection(id);
         await refreshData();
@@ -1491,19 +1494,31 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
                 final rawItemReps = h['reps'] ?? h['tallyCount'];
                 final int reps = rawItemReps is num ? rawItemReps.toInt() : (int.tryParse(rawItemReps?.toString() ?? '') ?? 0);
 
-                final existingIdx = combinedHistory.indexWhere((eh) =>
-                    (timestamp.isNotEmpty && eh.timestamp.isNotEmpty && eh.timestamp == timestamp) ||
-                    (timestamp.isEmpty && eh.date == date));
-
-                if (existingIdx != -1) {
-                  final prev = combinedHistory[existingIdx];
-                  combinedHistory[existingIdx] = HistoryEntry(
-                    timestamp: prev.timestamp.isNotEmpty ? prev.timestamp : timestamp,
-                    date: date.isNotEmpty ? date : prev.date,
-                    seconds: secs > prev.seconds ? secs : prev.seconds,
-                    reps: reps > prev.reps ? reps : prev.reps,
-                  );
-                } else {
+                bool foundFuzzy = false;
+                for (int i = 0; i < combinedHistory.length; i++) {
+                  final eh = combinedHistory[i];
+                  if (timestamp.isNotEmpty && eh.timestamp.isNotEmpty) {
+                    final dt1 = DateTime.tryParse(timestamp.replaceAll(' ', 'T'));
+                    final dt2 = DateTime.tryParse(eh.timestamp.replaceAll(' ', 'T'));
+                    if (dt1 != null && dt2 != null && dt1.difference(dt2).inSeconds.abs() <= 60 && eh.seconds == secs) {
+                      foundFuzzy = true;
+                      break;
+                    }
+                  }
+                  if (!foundFuzzy && eh.timestamp == timestamp) {
+                    final prev = combinedHistory[i];
+                    combinedHistory[i] = HistoryEntry(
+                      timestamp: prev.timestamp.isNotEmpty ? prev.timestamp : timestamp,
+                      date: date.isNotEmpty ? date : prev.date,
+                      seconds: secs > prev.seconds ? secs : prev.seconds,
+                      reps: reps > prev.reps ? reps : prev.reps,
+                    );
+                    foundFuzzy = true;
+                    break;
+                  }
+                }
+                
+                if (!foundFuzzy) {
                   combinedHistory.add(HistoryEntry(
                     timestamp: timestamp,
                     date: date,
@@ -1532,8 +1547,9 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
               return HistoryEntry(timestamp: timestamp, date: date, seconds: secs, reps: reps);
             }).toList();
 
+            final maxId = mergedClients.values.fold<int>(0, (prev, c) => c.id > prev ? c.id : prev);
             mergedClients[key] = ClientSection(
-              id: mergedClients.length + 1,
+              id: maxId + 1,
               name: name,
               totalSecondsToday: impToday,
               reps: impReps,
@@ -1633,8 +1649,8 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
           final cMap = c as Map<String, dynamic>;
           final hist = (cMap['history'] as List<dynamic>? ?? []).map((h) {
             final hMap = h as Map<String, dynamic>;
-            final secs = (hMap['secs'] ?? hMap['seconds'] as num?)?.toInt() ?? 0;
-            final reps = (hMap['reps'] ?? hMap['tallyCount'] as num?)?.toInt() ?? 0;
+            final secs = (hMap['secs'] as num?)?.toInt() ?? (hMap['seconds'] as num?)?.toInt() ?? 0;
+            final reps = (hMap['reps'] as num?)?.toInt() ?? (hMap['tallyCount'] as num?)?.toInt() ?? 0;
             return HistoryEntry(
               timestamp: hMap['timestamp'] as String? ?? '',
               date: (hMap['date'] ?? '').toString(),
@@ -1643,8 +1659,8 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
             );
           }).toList();
 
-          final todaySecs = (cMap['totalSecsToday'] ?? cMap['totalSecondsToday'] as num?)?.toInt() ?? 0;
-          final reps = (cMap['reps'] ?? cMap['tallyCount'] as num?)?.toInt() ?? 0;
+          final todaySecs = (cMap['totalSecsToday'] as num?)?.toInt() ?? (cMap['totalSecondsToday'] as num?)?.toInt() ?? 0;
+          final reps = (cMap['reps'] as num?)?.toInt() ?? (cMap['tallyCount'] as num?)?.toInt() ?? 0;
 
           final isNeg = (cMap['isNegative'] as bool?) ?? false;
           return ClientSection(
@@ -1740,6 +1756,7 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
   @override
   void dispose() {
     _isDisposed = true;
+    WidgetsBinding.instance.removeObserver(this);
     _pollTimer?.cancel();
     _localTicker?.cancel();
     _bleTelemetrySub?.cancel();

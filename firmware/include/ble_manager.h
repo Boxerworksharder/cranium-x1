@@ -547,7 +547,7 @@ inline void CommandCallbacks::onWrite(BLECharacteristic* pCharacteristic) {
                 tracker->setWellnessInterval(doc["interval"].as<int>());
             }
             if (!doc["mode"].isNull()) {
-                tracker->wellnessMode = doc["mode"].as<int>();
+                tracker->wellnessMode = doc["mode"].as<int>() % 3;
             }
             tracker->markDirty();
             HapticManager::pulseTap();
