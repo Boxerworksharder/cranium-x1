@@ -40,6 +40,10 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
   List<TaskItem> _tasks = [];
   List<ReminderItem> _reminders = [];
 
+  List<Map<String, dynamic>> _pendingSyncQueue = [];
+  bool _pendingResetOnConnect = false;
+  bool _isFlushingQueue = false;
+
   StreamSubscription? _bleTelemetrySub;
   StreamSubscription? _bleConnSub;
 
@@ -61,7 +65,7 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> _init({bool autoStartPolling = true}) async {
-    await _loadSettings();
+    await _loadSettings(autoStartPolling: autoStartPolling);
     if (_isDisposed) return;
     if (autoStartPolling) {
       startPolling();
@@ -178,7 +182,7 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _loadSettings() async {
+  Future<void> _loadSettings({bool autoStartPolling = true}) async {
     final prefs = await SharedPreferences.getInstance();
     _host = prefs.getString(AppConstants.prefDeviceHost) ?? AppConstants.defaultEspIp;
     _apiService.host = _host;
@@ -226,6 +230,17 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
       _lastBackupDate = DateTime.tryParse(lastBackupStr);
     }
 
+    _pendingResetOnConnect = prefs.getBool('pref_pending_reset') ?? false;
+    final rawQueue = prefs.getString('pref_pending_sync_queue');
+    if (rawQueue != null && rawQueue.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(rawQueue) as List<dynamic>;
+        _pendingSyncQueue = decoded.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      } catch (e) {
+        debugPrint('[TrackerProvider] Error loading pending sync queue: $e');
+      }
+    }
+
     // If restored state was tracking, resume local ticker
     if (_status.state == TrackerState.tracking) {
       _startLocalTicker();
@@ -252,6 +267,7 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
         } catch (_) {}
         stopPolling();
         syncTimeToDevice();
+        unawaited(_flushPendingSyncQueue());
         notifyListeners();
       } else {
         if (_protocol == SyncProtocol.bluetooth) {
@@ -273,7 +289,9 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
     if (_protocol == SyncProtocol.wifi) {
       await refreshData();
-      startPolling();
+      if (autoStartPolling) {
+        startPolling();
+      }
     } else {
       notifyListeners();
     }
@@ -287,6 +305,73 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
       data['reminders'] = _reminders.map((r) => r.toJson()).toList();
       await prefs.setString('pref_cached_status', jsonEncode(data));
     } catch (_) {}
+  }
+
+  Future<void> _savePendingSyncQueue() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('pref_pending_sync_queue', jsonEncode(_pendingSyncQueue));
+    } catch (_) {}
+  }
+
+  Future<void> _savePendingReset() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('pref_pending_reset', _pendingResetOnConnect);
+    } catch (_) {}
+  }
+
+  void _enqueueSyncCommand(Map<String, dynamic> cmd) {
+    _pendingSyncQueue.add(cmd);
+    _savePendingSyncQueue();
+    if (_bleService.isConnected && !_isFlushingQueue) {
+      unawaited(_flushPendingSyncQueue());
+    }
+  }
+
+  Future<void> _flushPendingSyncQueue() async {
+    if (_isFlushingQueue || !_bleService.isConnected) return;
+    _isFlushingQueue = true;
+
+    try {
+      if (_pendingResetOnConnect) {
+        debugPrint('[TrackerProvider] Flushing pending hard reset command to hardware...');
+        final ok = await _bleService.sendCommand({'action': 'reset_all'});
+        if (ok) {
+          _pendingResetOnConnect = false;
+          _pendingSyncQueue.clear();
+          await _savePendingReset();
+          await _savePendingSyncQueue();
+          _isFlushingQueue = false;
+          return;
+        }
+      }
+
+      if (_pendingSyncQueue.isNotEmpty) {
+        debugPrint('[TrackerProvider] Flushing ${_pendingSyncQueue.length} pending commands to hardware...');
+        final queueSnapshot = List<Map<String, dynamic>>.from(_pendingSyncQueue);
+        for (final cmd in queueSnapshot) {
+          if (!_bleService.isConnected) break;
+          try {
+            final ok = await _bleService.sendCommand(cmd);
+            if (ok) {
+              _pendingSyncQueue.remove(cmd);
+              await _savePendingSyncQueue();
+              await Future.delayed(const Duration(milliseconds: 120));
+            } else {
+              break;
+            }
+          } catch (e) {
+            debugPrint('[TrackerProvider] Error flushing cmd $cmd: $e');
+            break;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[TrackerProvider] _flushPendingSyncQueue exception: $e');
+    } finally {
+      _isFlushingQueue = false;
+    }
   }
 
   Future<void> _saveTimerPreferences() async {
@@ -525,15 +610,39 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
     final defaultPurity = totalTracked > 0 ? ((dwSecs * 100) / totalTracked).round() : 100;
     final purity = (data['focusPurityPct'] as num?)?.toInt() ?? defaultPurity;
 
-    if (data['tasks'] is List) {
-      _tasks = (data['tasks'] as List)
-          .map((t) => TaskItem.fromJson(t as Map<String, dynamic>))
-          .toList();
-    }
-    if (data['reminders'] is List) {
-      _reminders = (data['reminders'] as List)
-          .map((r) => ReminderItem.fromJson(r as Map<String, dynamic>))
-          .toList();
+    if (!_pendingResetOnConnect) {
+      if (data['tasks'] is List) {
+        final incomingTasks = (data['tasks'] as List)
+            .map((t) => TaskItem.fromJson(t as Map<String, dynamic>))
+            .toList();
+        if (_pendingSyncQueue.any((c) => c['action'].toString().contains('task')) || _isFlushingQueue) {
+          final Map<int, TaskItem> taskMap = {for (final t in incomingTasks) t.id: t};
+          for (final local in _tasks) {
+            if (!taskMap.containsKey(local.id)) {
+              taskMap[local.id] = local;
+            }
+          }
+          _tasks = taskMap.values.toList()..sort((a, b) => a.id.compareTo(b.id));
+        } else {
+          _tasks = incomingTasks;
+        }
+      }
+      if (data['reminders'] is List) {
+        final incomingReminders = (data['reminders'] as List)
+            .map((r) => ReminderItem.fromJson(r as Map<String, dynamic>))
+            .toList();
+        if (_pendingSyncQueue.any((c) => c['action'].toString().contains('reminder')) || _isFlushingQueue) {
+          final Map<int, ReminderItem> remMap = {for (final r in incomingReminders) r.id: r};
+          for (final local in _reminders) {
+            if (!remMap.containsKey(local.id)) {
+              remMap[local.id] = local;
+            }
+          }
+          _reminders = remMap.values.toList()..sort((a, b) => a.id.compareTo(b.id));
+        } else {
+          _reminders = incomingReminders;
+        }
+      }
     }
 
     _status = DeviceStatus(
@@ -726,6 +835,7 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
   Future<bool> _dispatchDeviceCommand({
     required Map<String, dynamic> bleCommand,
     Future<dynamic> Function()? wifiFallback,
+    bool queueIfOffline = false,
   }) async {
     if (_bleService.isConnected) {
       try {
@@ -750,6 +860,11 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
           debugPrint('[TrackerProvider] Wi-Fi command error: $e');
         }
       }
+    }
+
+    if (queueIfOffline) {
+      debugPrint('[TrackerProvider] Device offline. Enqueuing command into persistent sync queue: $bleCommand');
+      _enqueueSyncCommand(bleCommand);
     }
 
     return false;
@@ -807,6 +922,7 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
         'text': trimmed,
         'stars': stars.clamp(1, 3),
       },
+      queueIfOffline: true,
       wifiFallback: () async {
         final serverId = await _apiService.addTask(trimmed, stars);
         if (serverId != null && serverId != tempId) {
@@ -847,6 +963,7 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
         'action': 'toggle_task',
         'id': id,
       },
+      queueIfOffline: true,
       wifiFallback: () => _apiService.toggleTask(id),
     );
   }
@@ -864,6 +981,7 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
         'action': 'delete_task',
         'id': id,
       },
+      queueIfOffline: true,
       wifiFallback: () => _apiService.deleteTask(id),
     );
   }
@@ -893,6 +1011,7 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
         'stars': updatedStars,
         'done': updatedDone,
       },
+      queueIfOffline: true,
       wifiFallback: () => _apiService.updateTask(id, text: updatedText, stars: updatedStars, done: updatedDone),
     );
   }
@@ -916,6 +1035,7 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
         'action': 'add_reminder',
         'text': trimmed,
       },
+      queueIfOffline: true,
       wifiFallback: () async {
         final serverId = await _apiService.addReminder(trimmed);
         if (serverId != null && serverId != tempId) {
@@ -943,6 +1063,7 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
         'action': 'delete_reminder',
         'id': id,
       },
+      queueIfOffline: true,
       wifiFallback: () => _apiService.deleteReminder(id),
     );
   }
@@ -967,6 +1088,7 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
         'id': id,
         'text': trimmed,
       },
+      queueIfOffline: true,
       wifiFallback: () => _apiService.updateReminder(id, trimmed),
     );
   }
@@ -1284,20 +1406,37 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
   // --- Factory Data Reset ---
 
   Future<bool> resetAllData() async {
-    bool ok = await _dispatchDeviceCommand(
+    _pendingSyncQueue.clear();
+    await _savePendingSyncQueue();
+
+    bool sent = await _dispatchDeviceCommand(
       bleCommand: {'action': 'reset_all'},
       wifiFallback: () => _apiService.resetAll(),
     );
 
+    if (!sent) {
+      _pendingResetOnConnect = true;
+      await _savePendingReset();
+    } else {
+      _pendingResetOnConnect = false;
+      await _savePendingReset();
+    }
+
     _status = const DeviceStatus();
     _tasks.clear();
     _reminders.clear();
+    _lastBackupDate = null;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('pref_last_backup_date');
+    } catch (_) {}
+
     notifyListeners();
-    _saveCachedStatus();
-    if (_protocol == SyncProtocol.wifi) {
+    await _saveCachedStatus();
+    if (_protocol == SyncProtocol.wifi && _isOnline) {
       await refreshData();
     }
-    return ok;
+    return true;
   }
 
   Future<void> recordBackupCompleted() async {

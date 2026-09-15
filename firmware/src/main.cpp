@@ -194,7 +194,7 @@ void handleEncoderInput() {
         }
 
         if (tracker.state == STATE_SELECT_CLIENT) {
-            int totalItems = tracker.clients.size() + 7;
+            int totalItems = tracker.clients.size() + 8;
             if (diff > 0) {
                 tracker.menuIndex = (tracker.menuIndex + 1) % totalItems;
             } else if (diff < 0) {
@@ -392,6 +392,15 @@ void handleButtons() {
                     triggerStatusLedFlash(100);
                     tracker.markDirty();
                     bleManager.broadcastStatus();
+                } else if (tracker.menuIndex == totalClients + 7) {
+                    HapticManager::pulseStop();
+                    tracker.resetAllData();
+                    StorageManager::saveTrackerData(tracker);
+                    triggerStatusLedFlash(400);
+                    bleManager.broadcastStatus();
+                    bleManager.requestImmediateBroadcast();
+                    tracker.menuIndex = 0;
+                    needsRedraw = true;
                 } else {
                     tracker.activeClientIndex = tracker.menuIndex;
                     trackingPageView = 0;

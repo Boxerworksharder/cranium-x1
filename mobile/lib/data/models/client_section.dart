@@ -1,3 +1,5 @@
+import 'package:intl/intl.dart';
+
 class HistoryEntry {
   final String timestamp;
   final String date;
@@ -93,8 +95,24 @@ class ClientSection {
   }
 
   int get totalAccumulatedSecs {
-    final histTotal = history.fold<int>(0, (sum, h) => sum + h.seconds);
-    return totalSecondsToday + histTotal;
+    final now = DateTime.now();
+    final todayStr = DateFormat('dd MMM yyyy').format(now).toLowerCase();
+    final todayStrAlt = DateFormat('d MMM yyyy').format(now).toLowerCase();
+    final todayIso = DateFormat('yyyy-MM-dd').format(now).toLowerCase();
+
+    int pastHistSecs = 0;
+    for (final h in history) {
+      final hDate = h.date.trim().toLowerCase();
+      final hTs = h.timestamp.trim().toLowerCase();
+      final bool isToday = (hDate == todayStr ||
+          hDate == todayStrAlt ||
+          hDate == todayIso ||
+          (hTs.isNotEmpty && hTs.startsWith(todayIso)));
+      if (!isToday) {
+        pastHistSecs += h.seconds;
+      }
+    }
+    return totalSecondsToday + pastHistSecs;
   }
 
   String get formattedTodayTime {

@@ -28,7 +28,13 @@
   #define PIN_ENCODER_DT    13
   #define PIN_ENCODER_SW    14
   #define PIN_TALLY_BUTTON  15
+  #define PIN_SESSIONS_BUTTON 16
   #define PIN_BOARD_LED     21
+  #define PIN_LED_RED       17
+  #define PIN_LED_BLUE      18
+  #define PIN_LED_FOCUS     PIN_LED_RED
+  #define PIN_LED_STATUS    PIN_LED_BLUE
+  #define PIN_HAPTIC_MOTOR  19
 
 #else
   // --- Standard ESP32 WROOM DevKit ---
@@ -38,5 +44,11 @@
   #define PIN_ENCODER_DT    19
   #define PIN_ENCODER_SW    23
   #define PIN_TALLY_BUTTON  15
+  #define PIN_SESSIONS_BUTTON 4
   #define PIN_BOARD_LED     2
+  #define PIN_LED_RED       25
+  #define PIN_LED_BLUE      26
+  #define PIN_LED_FOCUS     PIN_LED_RED
+  #define PIN_LED_STATUS    PIN_LED_BLUE
+  #define PIN_HAPTIC_MOTOR  27
 #endif

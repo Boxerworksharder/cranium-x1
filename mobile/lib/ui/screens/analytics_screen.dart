@@ -33,27 +33,55 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         final activeClient = status.activeClient;
         final activeDeepWorkSecs = (isTrackingOrPaused && activeClient != null && !activeClient.isNegative) ? status.sessionSeconds : 0;
         final activeWasteSecs = (isTrackingOrPaused && activeClient != null && activeClient.isNegative) ? status.sessionSeconds : 0;
+        final now = DateTime.now();
+        final todayStr = DateFormat('dd MMM yyyy').format(now).toLowerCase();
+        final todayStrAlt = DateFormat('d MMM yyyy').format(now).toLowerCase();
+        final todayIso = DateFormat('yyyy-MM-dd').format(now).toLowerCase();
+
+        bool isEntryToday(HistoryEntry h) {
+          final hDate = h.date.trim().toLowerCase();
+          final hTs = h.timestamp.trim().toLowerCase();
+          return hDate == todayStr ||
+              hDate == todayStrAlt ||
+              hDate == todayIso ||
+              (hTs.isNotEmpty && hTs.startsWith(todayIso));
+        }
 
         // Calculate all-time and session metrics for pure Deep Work
         final int totalDeepWorkSecs = deepWorkClients.fold<int>(0, (sum, c) => sum + c.totalAccumulatedSecs) + activeDeepWorkSecs;
         final int totalMinsFocused = totalDeepWorkSecs ~/ 60;
 
-        final int totalSessions = deepWorkClients.fold<int>(0, (sum, c) => sum + c.history.length + (c.totalSecondsToday >= 60 ? 1 : 0));
+        int totalSessions = 0;
+        for (final c in deepWorkClients) {
+          int cCount = c.history.length;
+          final hasToday = c.history.any(isEntryToday);
+          if (!hasToday && (c.totalSecondsToday >= 60 || (isTrackingOrPaused && activeClient?.id == c.id && activeDeepWorkSecs >= 60))) {
+            cCount += 1;
+          }
+          totalSessions += cCount;
+        }
         final int streakDays = status.currentStreak;
 
         // Separate Metrics for Negative Activities / Time Sinks
         final totalWasteSecsToday = status.totalWasteToday + activeWasteSecs;
         final totalWasteSecsAllTime = negativeClients.fold<int>(0, (sum, c) => sum + c.totalAccumulatedSecs) + activeWasteSecs;
-        final totalWasteSessions = negativeClients.fold<int>(0, (sum, c) => sum + c.history.length + (c.totalSecondsToday >= 60 ? 1 : 0));
+
+        int totalWasteSessions = 0;
+        for (final c in negativeClients) {
+          int cCount = c.history.length;
+          final hasToday = c.history.any(isEntryToday);
+          if (!hasToday && (c.totalSecondsToday >= 60 || (isTrackingOrPaused && activeClient?.id == c.id && activeWasteSecs >= 60))) {
+            cCount += 1;
+          }
+          totalWasteSessions += cCount;
+        }
         final purityPct = status.focusPurityPct;
 
         // Focus Score (Purity) across all tracked time
         final totalTrackedAllTime = totalDeepWorkSecs + totalWasteSecsAllTime;
         final String focusScore = totalTrackedAllTime > 0
             ? '${((totalDeepWorkSecs * 100) / totalTrackedAllTime).round()}%'
-            : (totalDeepWorkSecs > 0 ? '100%' : (totalSessions > 0 ? '${status.focusPurityPct}%' : '100%'));
-
-        final now = DateTime.now();
+            : '0%';
 
         // Distinct active dates & calendar weeks & daily average
         final Set<String> distinctDateStrings = {};
@@ -95,6 +123,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         for (final c in deepWorkClients) {
           for (final h in c.history) {
             if (h.seconds < 60) continue;
+            if (isEntryToday(h)) continue; // Avoid double-counting with today's live total
             final dt = _parseEntryDate(h);
             if (dt != null) {
               final dayIdx = dt.weekday - 1;
@@ -146,6 +175,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             }
             for (final c in deepWorkClients) {
               for (final h in c.history) {
+                if (isEntryToday(h) && dayKey == DateFormat('yyyy-MM-dd').format(now)) continue;
                 final dt = _parseEntryDate(h);
                 if (dt != null && DateFormat('yyyy-MM-dd').format(dt) == dayKey) {
                   bucketSecs[i] += h.seconds;
@@ -170,6 +200,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
             for (final c in deepWorkClients) {
               for (final h in c.history) {
+                if (isEntryToday(h) && i == numBuckets - 1) continue;
                 final dt = _parseEntryDate(h);
                 if (dt != null && !dt.isBefore(weekStart) && !dt.isAfter(weekEnd.add(const Duration(days: 1)))) {
                   bucketSecs[i] += h.seconds;
@@ -191,6 +222,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             final mMonth = mDate.month;
             for (final c in deepWorkClients) {
               for (final h in c.history) {
+                if (isEntryToday(h) && mYear == now.year && mMonth == now.month) continue;
                 final dt = _parseEntryDate(h);
                 if (dt != null && dt.year == mYear && dt.month == mMonth) {
                   bucketSecs[i] += h.seconds;
@@ -213,6 +245,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             final y = now.year - (numBuckets - 1 - i);
             for (final c in deepWorkClients) {
               for (final h in c.history) {
+                if (isEntryToday(h) && y == now.year) continue;
                 final dt = _parseEntryDate(h);
                 if (dt != null && dt.year == y) {
                   bucketSecs[i] += h.seconds;
@@ -241,7 +274,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             final dt = _parseEntryDate(h);
             if (dt != null) {
               if (dt.year == now.year && dt.month == now.month) {
-                thisMonthSecs += h.seconds;
+                if (!isEntryToday(h)) {
+                  thisMonthSecs += h.seconds;
+                }
               } else if (dt.year == lastMonthDate.year && dt.month == lastMonthDate.month) {
                 lastMonthSecs += h.seconds;
               }
@@ -549,7 +584,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                             child: Padding(
                               padding: const EdgeInsets.only(left: 12.0),
                               child: _buildReceiptCell(
-                                '$purityPct%',
+                                totalTrackedSecsToday > 0 ? '$purityPct%' : '0%',
                                 'FOCUS PURITY',
                                 valueColor: purityPct >= 85
                                     ? AppTheme.accentSage

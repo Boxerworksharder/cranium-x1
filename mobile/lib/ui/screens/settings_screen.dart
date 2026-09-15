@@ -15,42 +15,14 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  late TextEditingController _hostController;
   double _brightness = 255;
-  bool _testingConnection = false;
-  String? _testResult;
   bool _isConnectingBle = false;
 
   @override
   void initState() {
     super.initState();
     final tracker = context.read<TrackerProvider>();
-    _hostController = TextEditingController(text: tracker.host);
     _brightness = tracker.status.brightness.toDouble();
-  }
-
-  @override
-  void dispose() {
-    _hostController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _handleTestConnection() async {
-    setState(() {
-      _testingConnection = true;
-      _testResult = null;
-    });
-
-    final tracker = context.read<TrackerProvider>();
-    await tracker.setHost(_hostController.text.trim());
-    await tracker.refreshData();
-
-    setState(() {
-      _testingConnection = false;
-      _testResult = tracker.isOnline
-          ? 'SUCCESS: Connected to Cranium X1!'
-          : 'FAILED: Could not reach device. Check IP and Wi-Fi.';
-    });
   }
 
   @override
@@ -126,7 +98,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const SizedBox(height: 16),
 
-              // 1. Connection Protocol Selector Card (Wi-Fi vs Direct Bluetooth BLE)
+              // 1. Direct Bluetooth BLE Connection Card
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -152,26 +124,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                           decoration: BoxDecoration(
-                            color: (tracker.protocol == SyncProtocol.bluetooth
-                                    ? AppTheme.cyanTelemetry
-                                    : AppTheme.orangeFlame)
-                                .withOpacity(0.15),
+                            color: AppTheme.cyanTelemetry.withOpacity(0.15),
                             borderRadius: BorderRadius.circular(AppTheme.radiusMicro),
                             border: Border.all(
-                              color: (tracker.protocol == SyncProtocol.bluetooth
-                                      ? AppTheme.cyanTelemetry
-                                      : AppTheme.orangeFlame)
-                                  .withOpacity(0.4),
+                              color: AppTheme.cyanTelemetry.withOpacity(0.4),
                             ),
                           ),
                           child: Text(
-                            tracker.protocol == SyncProtocol.bluetooth ? 'BLE 5.0 GATT' : 'WI-FI / HTTP',
+                            'BLE 5.0 GATT',
                             style: TextStyle(
                               fontSize: 9,
                               fontWeight: FontWeight.w900,
-                              color: tracker.protocol == SyncProtocol.bluetooth
-                                  ? AppTheme.cyanTelemetry
-                                  : AppTheme.orangeFlame,
+                              color: AppTheme.cyanTelemetry,
                               fontFamily: 'monospace',
                             ),
                           ),
@@ -179,100 +143,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    // Segmented Toggle: Wi-Fi vs BLE
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildProtocolOption(
-                            label: '📶 WI-FI LOCAL LINK',
-                            isSelected: tracker.protocol == SyncProtocol.wifi,
-                            onTap: () {
-                              AppTheme.hapticSelection();
-                              tracker.setSyncProtocol(SyncProtocol.wifi);
-                            },
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _buildProtocolOption(
-                            label: '⚡ DIRECT BLUETOOTH',
-                            isSelected: tracker.protocol == SyncProtocol.bluetooth,
-                            onTap: () {
-                              AppTheme.hapticSelection();
-                              tracker.setSyncProtocol(SyncProtocol.bluetooth);
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-
-                    if (tracker.protocol == SyncProtocol.wifi) ...[
-                      // Wi-Fi Configuration
-                      TextField(
-                        controller: _hostController,
-                        style: TextStyle(color: AppTheme.textPrimary, fontFamily: 'monospace'),
-                        decoration: InputDecoration(
-                          labelText: 'DEVICE IP / HOSTNAME',
-                          labelStyle: TextStyle(color: AppTheme.textMuted, fontSize: 12),
-                          hintText: '192.168.0.210',
-                          filled: true,
-                          fillColor: AppTheme.surfaceRecessed,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(AppTheme.radiusControl),
-                            borderSide: BorderSide(color: AppTheme.hairlineSeam),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(AppTheme.radiusControl),
-                            borderSide: BorderSide(color: AppTheme.hairlineSeam),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(AppTheme.radiusControl),
-                            borderSide: BorderSide(color: AppTheme.orangeFlame, width: 1.2),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          ElevatedButton.icon(
-                            icon: _testingConnection
-                                ? const SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                  )
-                                : const Icon(Icons.wifi_rounded, size: 18),
-                            label: const Text('SAVE & TEST'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppTheme.cyanTelemetry,
-                              foregroundColor: AppTheme.surfaceVoid,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusControl)),
-                            ),
-                            onPressed: _testingConnection
-                                ? null
-                                : () {
-                                    AppTheme.hapticAction();
-                                    _handleTestConnection();
-                                  },
-                          ),
-                        ],
-                      ),
-                      if (_testResult != null) ...[
-                        const SizedBox(height: 10),
-                        Text(
-                          _testResult!,
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: tracker.isOnline ? AppTheme.emeraldGreen : AppTheme.dangerCrimson,
-                          ),
-                        ),
-                      ],
-                    ] else ...[
-                      // Bluetooth Low Energy Controls
-                      _buildBleControls(tracker),
-                    ],
+                    _buildBleControls(tracker),
                   ],
                 ),
               ),
@@ -343,49 +214,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       },
                     ),
                     Divider(color: AppTheme.hairlineSeam, height: 20),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            icon: const Icon(Icons.sync_rounded, size: 15),
-                            label: const Text('SYNC PHONE TIME', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: AppTheme.cyanTelemetry,
-                              side: BorderSide(color: AppTheme.cyanTelemetry.withOpacity(0.5)),
-                              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-                            ),
-                            onPressed: () async {
-                              AppTheme.hapticAction();
-                              final ok = await tracker.syncTimeToDevice();
-                              if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(ok ? '✓ Real-world RTC clock synced to ESP32!' : 'Failed to sync clock'),
-                                    backgroundColor: ok ? AppTheme.emeraldGreen : AppTheme.dangerCrimson,
-                                  ),
-                                );
-                              }
-                            },
-                          ),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.sync_rounded, size: 15),
+                        label: const Text('SYNC PHONE TIME (RTC)', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 0.5)),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppTheme.cyanTelemetry,
+                          side: BorderSide(color: AppTheme.cyanTelemetry.withOpacity(0.5)),
+                          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
                         ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            icon: const Icon(Icons.wifi_tethering_rounded, size: 15),
-                            label: const Text('AWAY HOTSPOT', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: AppTheme.orangeFlame,
-                              side: BorderSide(color: AppTheme.orangeFlame.withOpacity(0.5)),
-                              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-                            ),
-                            onPressed: () {
-                              AppTheme.hapticSelection();
-                              _hostController.text = '192.168.4.1';
-                              tracker.setHost('192.168.4.1');
-                            },
-                          ),
-                        ),
-                      ],
+                        onPressed: () async {
+                          AppTheme.hapticAction();
+                          final ok = await tracker.syncTimeToDevice();
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(ok ? '✓ Real-world RTC clock synced to ESP32!' : 'Failed to sync clock'),
+                                backgroundColor: ok ? AppTheme.emeraldGreen : AppTheme.dangerCrimson,
+                              ),
+                            );
+                          }
+                        },
+                      ),
                     ),
                   ],
                 ),
@@ -995,7 +846,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       onPressed: () async {
                         AppTheme.hapticAction();
                         await ble.disconnect();
-                        await tracker.setSyncProtocol(SyncProtocol.wifi);
                       },
                       child: Text('DISCONNECT', style: TextStyle(fontSize: 10, color: AppTheme.dangerCrimson, fontWeight: FontWeight.bold)),
                     )
@@ -1166,39 +1016,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildProtocolOption({
-    required String label,
-    required bool isSelected,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(AppTheme.radiusControl),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 9),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? AppTheme.orangeFlame.withOpacity(0.2)
-              : AppTheme.surfaceRecessed,
-          borderRadius: BorderRadius.circular(AppTheme.radiusControl),
-          border: Border.all(
-            color: isSelected ? AppTheme.orangeFlame : AppTheme.hairlineSeam,
-            width: isSelected ? 1.5 : 0.8,
-          ),
-        ),
-        alignment: Alignment.center,
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 10.5,
-            fontWeight: isSelected ? FontWeight.w900 : FontWeight.w600,
-            color: isSelected ? AppTheme.orangeFlame : AppTheme.textMuted,
-          ),
-        ),
-      ),
-    );
-  }
-
   // --- RESET CONFIRMATION DIALOG ---
   void _showResetConfirmationDialog(BuildContext context, TrackerProvider tracker) {
     showDialog(
@@ -1288,12 +1105,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onPressed: () async {
                 AppTheme.hapticAction();
                 Navigator.pop(ctx);
-                final ok = await tracker.resetAllData();
+                final isConnected = tracker.bleService.isConnected;
+                await tracker.resetAllData();
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text(ok ? '✓ Hard reset complete. Storage zeroed.' : 'Failed to reset device.'),
-                      backgroundColor: ok ? AppTheme.orangeFlame : AppTheme.dangerCrimson,
+                      content: Text(isConnected
+                          ? '✓ Hard reset complete. Storage zeroed.'
+                          : '✓ App storage zeroed. Hardware will wipe upon next link.'),
+                      backgroundColor: AppTheme.orangeFlame,
                     ),
                   );
                 }

@@ -690,18 +690,9 @@ private:
         server.on("/api/reset", HTTP_POST, [this]() {
             sendCORS();
             TrackerLock lock;
-            for (auto& c : tracker.clients) {
-                c.totalSecondsToday = 0;
-                c.tallyCount = 0;
-                c.history.clear();
-            }
-            tracker.currentSessionSeconds = 0;
-            tracker.currentStreakDays = 0;
-            tracker.longestStreakDays = 0;
-            tracker.lastActiveDate = getSystemDate();
-            tracker.state = STATE_SELECT_CLIENT;
-            tracker.recordUserActivity();
+            tracker.resetAllData();
             StorageManager::saveTrackerData(tracker);
+            HapticManager::pulseStop();
             needsRedraw = true;
             server.send(200, "application/json", "{\"status\":\"reset_complete\"}");
         });

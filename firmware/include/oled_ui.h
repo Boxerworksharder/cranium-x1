@@ -165,7 +165,7 @@ inline void renderClientSelectScreen() {
     renderGlobalDeepWorkHeader(false);
 
     int totalClients = tracker.clients.size();
-    int totalItems = totalClients + 7;
+    int totalItems = totalClients + 8;
     int selected = tracker.menuIndex;
     if (selected >= totalItems) selected = 0;
 
@@ -307,7 +307,7 @@ inline void renderClientSelectScreen() {
                 int rW = u8g2.getStrWidth(wBuf);
                 u8g2.drawStr((128 - rW) / 2, y, wBuf);
             }
-        } else {
+        } else if (i == totalClients + 6) {
             // [ ⚡ PB KeepAlive: ON / OFF ]
             char pbBuf[32];
             snprintf(pbBuf, sizeof(pbBuf), "%s PB KEEPALIVE: %s %s",
@@ -323,6 +323,22 @@ inline void renderClientSelectScreen() {
                 u8g2.setFont(u8g2_font_6x10_tf);
                 int rW = u8g2.getStrWidth(pbBuf);
                 u8g2.drawStr((128 - rW) / 2, y, pbBuf);
+            }
+        } else {
+            // [ Hard Reset ]
+            if (i == selected) {
+                u8g2.drawRBox(0, y - 9, 128, 12, 2);
+                u8g2.setDrawColor(0);
+                u8g2.setFont(u8g2_font_helvB08_tf);
+                const char* rstStr = ">> ZERO HARD RESET <<";
+                int rW = u8g2.getStrWidth(rstStr);
+                u8g2.drawStr((128 - rW) / 2, y, rstStr);
+                u8g2.setDrawColor(1);
+            } else {
+                u8g2.setFont(u8g2_font_6x10_tf);
+                const char* rstStr = "[ Hard Reset ]";
+                int rW = u8g2.getStrWidth(rstStr);
+                u8g2.drawStr((128 - rW) / 2, y, rstStr);
             }
         }
         y += 13;
