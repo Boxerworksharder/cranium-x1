@@ -385,23 +385,22 @@ public:
     }
 
     void resetAllData() {
-        for (auto& c : clients) {
-            c.totalSecondsToday = 0;
-            c.tallyCount = 0;
-            c.history.clear();
-        }
-        tasks.clear();
-        tasks.push_back({ 1, "Review Firmware PR #4", 3, false, getSystemTimestamp() });
-        tasks.push_back({ 2, "Test GPIO 20 Task Glance", 3, false, getSystemTimestamp() });
-        tasks.push_back({ 3, "Finish LeetCode Graph", 2, false, getSystemTimestamp() });
-        tasks.push_back({ 4, "Calibrate Desk Haptics", 1, true, getSystemTimestamp() });
-        sortTasks();
+        clients.clear();
+        clients.push_back({ 1, "Deep Coding", 0, 0, {}, false });
+        clients.push_back({ 2, "System Design", 0, 0, {}, false });
+        clients.push_back({ 3, "DSA LeetCode", 0, 0, {}, false });
+        clients.push_back({ 4, "Hardware Labs", 0, 0, {}, false });
+        clients.push_back({ 5, "YouTube & Reels", 0, 0, {}, true });
 
+        activeClientIndex = 0;
+        menuIndex = 0;
+        summaryIndex = 0;
+        logScrollIndex = 0;
+        taskScrollIndex = 0;
+        reminderScrollIndex = 0;
+
+        tasks.clear();
         reminders.clear();
-        reminders.push_back({ 1, "Drink 3L water daily", getSystemTimestamp() });
-        reminders.push_back({ 2, "Read 30 mins before sleep", getSystemTimestamp() });
-        reminders.push_back({ 3, "Plan tomorrow's priorities", getSystemTimestamp() });
-        reminders.push_back({ 4, "Posture & hourly stretch", getSystemTimestamp() });
 
         currentSessionSeconds = 0;
         currentStreakDays = 0;

@@ -458,18 +458,10 @@ private:
                     HapticManager::pulseTap();
                 }
             } else if (act == "reset_all") {
-                for (auto& c : tracker.clients) {
-                    c.totalSecondsToday = 0;
-                    c.tallyCount = 0;
-                    c.history.clear();
-                }
-                tracker.currentSessionSeconds = 0;
-                tracker.currentStreakDays = 0;
-                tracker.longestStreakDays = 0;
-                tracker.lastActiveDate = getSystemDate();
-                tracker.state = STATE_SELECT_CLIENT;
-                tracker.recordUserActivity();
+                tracker.resetAllData();
                 StorageManager::saveTrackerData(tracker);
+                HapticManager::pulseStop();
+                needsRedraw = true;
             } else if (act == "set_brightness" || act == "brightness") {
                 int level = doc["level"] | (doc["value"] | -1);
                 if (level >= 10 && level <= 255) {

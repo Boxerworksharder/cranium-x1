@@ -525,6 +525,17 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
     final defaultPurity = totalTracked > 0 ? ((dwSecs * 100) / totalTracked).round() : 100;
     final purity = (data['focusPurityPct'] as num?)?.toInt() ?? defaultPurity;
 
+    if (data['tasks'] is List) {
+      _tasks = (data['tasks'] as List)
+          .map((t) => TaskItem.fromJson(t as Map<String, dynamic>))
+          .toList();
+    }
+    if (data['reminders'] is List) {
+      _reminders = (data['reminders'] as List)
+          .map((r) => ReminderItem.fromJson(r as Map<String, dynamic>))
+          .toList();
+    }
+
     _status = DeviceStatus(
       state: newState,
       activeClientId: clientId > 0 ? clientId : _status.activeClientId,
@@ -874,13 +885,16 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
       createdAt: current.createdAt,
     );
     notifyListeners();
-    _saveCachedStatus();
-
-    if (_isOnline && _protocol == SyncProtocol.wifi) {
-      try {
-        await _apiService.updateTask(id, text: updatedText, stars: updatedStars, done: updatedDone);
-      } catch (_) {}
-    }
+    await _dispatchDeviceCommand(
+      bleCommand: {
+        'action': 'update_task',
+        'id': id,
+        'text': updatedText,
+        'stars': updatedStars,
+        'done': updatedDone,
+      },
+      wifiFallback: () => _apiService.updateTask(id, text: updatedText, stars: updatedStars, done: updatedDone),
+    );
   }
 
   // --- Reminder Operations ---
@@ -947,13 +961,14 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
       createdAt: current.createdAt,
     );
     notifyListeners();
-    _saveCachedStatus();
-
-    if (_isOnline && _protocol == SyncProtocol.wifi) {
-      try {
-        await _apiService.updateReminder(id, trimmed);
-      } catch (_) {}
-    }
+    await _dispatchDeviceCommand(
+      bleCommand: {
+        'action': 'update_reminder',
+        'id': id,
+        'text': trimmed,
+      },
+      wifiFallback: () => _apiService.updateReminder(id, trimmed),
+    );
   }
 
   // --- Section Operations ---

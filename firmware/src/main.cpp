@@ -407,6 +407,7 @@ void handleButtons() {
                     HapticManager::pulseTally();
                     triggerStatusLedFlash(120);
                     tracker.markDirty();
+                    bleManager.requestImmediateBroadcast();
                 }
             } else if (tracker.state == STATE_VIEW_REMINDERS) {
                 HapticManager::pulseTap();

@@ -273,6 +273,28 @@ public:
             o["isNegative"] = tracker->clients[i].isNegative;
         }
 
+        // Tasks list for companion app synchronization
+        JsonArray taskArr = doc["tasks"].to<JsonArray>();
+        size_t maxTasks = tracker->tasks.size() > 16 ? 16 : tracker->tasks.size();
+        for (size_t i = 0; i < maxTasks; i++) {
+            JsonObject tObj = taskArr.add<JsonObject>();
+            tObj["id"] = tracker->tasks[i].id;
+            tObj["text"] = tracker->tasks[i].text;
+            tObj["stars"] = tracker->tasks[i].stars;
+            tObj["done"] = tracker->tasks[i].done;
+            tObj["created"] = tracker->tasks[i].createdAt;
+        }
+
+        // Reminders list for companion app synchronization
+        JsonArray remArr = doc["reminders"].to<JsonArray>();
+        size_t maxReminders = tracker->reminders.size() > 16 ? 16 : tracker->reminders.size();
+        for (size_t i = 0; i < maxReminders; i++) {
+            JsonObject rObj = remArr.add<JsonObject>();
+            rObj["id"] = tracker->reminders[i].id;
+            rObj["text"] = tracker->reminders[i].text;
+            rObj["created"] = tracker->reminders[i].createdAt;
+        }
+
         String payload;
         serializeJson(doc, payload);
 
@@ -437,7 +459,8 @@ inline void CommandCallbacks::onWrite(BLECharacteristic* pCharacteristic) {
             }
         } else if (strcmp(action, "reset_all") == 0) {
             tracker->resetAllData();
-            tracker->markDirty();
+            StorageManager::saveTrackerData(*tracker);
+            HapticManager::pulseStop();
             needsRedraw = true;
         } else if (strcmp(action, "set_brightness") == 0 || strcmp(action, "brightness") == 0) {
             int b = doc["level"] | (doc["value"] | -1);
@@ -559,9 +582,28 @@ inline void CommandCallbacks::onWrite(BLECharacteristic* pCharacteristic) {
             tracker->markDirty();
             HapticManager::pulseTap();
             needsRedraw = true;
+        } else if (strcmp(action, "update_task") == 0) {
+            int id = doc["id"] | -1;
+            String text = doc["text"] | "";
+            int stars = doc["stars"] | -1;
+            int done = -1;
+            if (!doc["done"].isNull()) {
+                done = doc["done"].as<bool>() ? 1 : 0;
+            }
+            if (id >= 0) tracker->updateTask(id, text, stars, done);
+            tracker->markDirty();
+            HapticManager::pulseTap();
+            needsRedraw = true;
         } else if (strcmp(action, "delete_reminder") == 0) {
             int id = doc["id"] | -1;
             if (id >= 0) tracker->deleteReminder(id);
+            tracker->markDirty();
+            HapticManager::pulseTap();
+            needsRedraw = true;
+        } else if (strcmp(action, "update_reminder") == 0) {
+            int id = doc["id"] | -1;
+            String text = doc["text"] | "";
+            if (id >= 0) tracker->updateReminder(id, text);
             tracker->markDirty();
             HapticManager::pulseTap();
             needsRedraw = true;

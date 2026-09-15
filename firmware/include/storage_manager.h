@@ -224,7 +224,7 @@ private:
             mgr.sortTasks();
         }
 
-        if (mgr.tasks.empty()) {
+        if (!doc["tasks"].is<JsonArray>() && mgr.tasks.empty()) {
             mgr.tasks.push_back({ 1, "Review Firmware PR #4", 3, false, getSystemTimestamp() });
             mgr.tasks.push_back({ 2, "Test GPIO 20 Task Glance", 3, false, getSystemTimestamp() });
             mgr.tasks.push_back({ 3, "Finish LeetCode Graph", 2, false, getSystemTimestamp() });
@@ -244,7 +244,7 @@ private:
             }
         }
 
-        if (mgr.reminders.empty()) {
+        if (!doc["reminders"].is<JsonArray>() && mgr.reminders.empty()) {
             mgr.reminders.push_back({ 1, "Drink 3L water daily", getSystemTimestamp() });
             mgr.reminders.push_back({ 2, "Read 30 mins before sleep", getSystemTimestamp() });
             mgr.reminders.push_back({ 3, "Plan tomorrow's priorities", getSystemTimestamp() });
