@@ -184,12 +184,20 @@ public:
         Serial.printf("[BLE] >> Bluetooth Low Energy Advertising started as '%s' (MTU: 512)!\n", BLE_DEVICE_NAME);
     }
 
+    volatile bool immediateBroadcastRequested = false;
+    bool isBroadcasting = false;
+
+    void requestImmediateBroadcast() {
+        immediateBroadcastRequested = true;
+    }
+
     void broadcastStatus() {
-        if (!isConnected || !pTelemetryChar || !tracker) return;
+        if (!isConnected || !pTelemetryChar || !tracker || isBroadcasting) return;
         if (pServer && pServer->getConnectedCount() == 0) {
             isConnected = false;
             return;
         }
+        isBroadcasting = true;
 
         unsigned long totalDwSecs = 0;
         int pct = 0;
@@ -229,11 +237,7 @@ public:
         JsonDocument doc;
         doc["state"] = stateStr;
         doc["dwSecs"] = totalDwSecs;
-        doc["globalDeepWorkSecondsToday"] = totalDwSecs;
-        doc["totalDeepWorkToday"] = totalDwSecs;
         doc["wasteSecs"] = totalWasteSecs;
-        doc["globalWasteSecondsToday"] = totalWasteSecs;
-        doc["totalWasteToday"] = totalWasteSecs;
         doc["focusPurityPct"] = focusPurity;
         doc["pct"] = pct;
         doc["streak"] = streak;
@@ -245,7 +249,6 @@ public:
         doc["todaySecs"] = activeTodaySecs;
         doc["reps"] = activeReps;
         doc["brightness"] = tracker->activeBrightness;
-        doc["brightnessPct"] = (tracker->activeBrightness * 100) / 255;
         doc["powerbank"] = PowerManager::keepAliveEnabled;
 
         // Compact client list for companion app synchronization
@@ -263,8 +266,31 @@ public:
         String payload;
         serializeJson(doc, payload);
 
-        pTelemetryChar->setValue(payload.c_str());
-        pTelemetryChar->notify();
+        // Safe chunking: ESP32 BLE characteristic buffer cannot exceed 512/600 bytes.
+        // Chunking at 180 bytes guarantees every notification packet fits standard ATT MTU
+        // and completely eliminates BTC_TASK stack overflows.
+        const size_t MAX_BLE_CHUNK = 180;
+        size_t totalLen = payload.length();
+        if (totalLen <= MAX_BLE_CHUNK) {
+            pTelemetryChar->setValue((uint8_t*)payload.c_str(), totalLen);
+            pTelemetryChar->notify();
+        } else {
+            size_t offset = 0;
+            while (offset < totalLen && isConnected) {
+                if (pServer && pServer->getConnectedCount() == 0) {
+                    isConnected = false;
+                    break;
+                }
+                size_t len = (totalLen - offset > MAX_BLE_CHUNK) ? MAX_BLE_CHUNK : (totalLen - offset);
+                pTelemetryChar->setValue((uint8_t*)(payload.c_str() + offset), len);
+                pTelemetryChar->notify();
+                offset += len;
+                if (offset < totalLen) {
+                    vTaskDelay(pdMS_TO_TICKS(15));
+                }
+            }
+        }
+        isBroadcasting = false;
     }
 
     void update() {
@@ -291,8 +317,9 @@ public:
             BLEDevice::startAdvertising();
         }
 
-        // 3. Periodic Telemetry Stream (1Hz) when client is actively connected
-        if (isConnected && (now - lastNotifyMillis >= 1000)) {
+        // 3. Periodic Telemetry Stream (1Hz) or Immediate Command Echo when client is actively connected
+        if (isConnected && (immediateBroadcastRequested || (now - lastNotifyMillis >= 1000))) {
+            immediateBroadcastRequested = false;
             lastNotifyMillis = now;
             broadcastStatus();
         }
@@ -533,6 +560,6 @@ inline void CommandCallbacks::onWrite(BLECharacteristic* pCharacteristic) {
     }
 
     if (bleMgr) {
-        bleMgr->broadcastStatus();
+        bleMgr->requestImmediateBroadcast();
     }
 }

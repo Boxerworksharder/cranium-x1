@@ -149,16 +149,20 @@ class DeviceStatus {
     final effectiveClients =
         parsedClients.isNotEmpty ? parsedClients : defaultClients;
 
-    int parsedActiveId = (json['activeClientId'] as num?)?.toInt() ?? 0;
+    int parsedActiveId = (json['activeClientId'] as num?)?.toInt() ??
+        (json['clientId'] as num?)?.toInt() ??
+        0;
     if (parsedActiveId <= 0 && effectiveClients.isNotEmpty) {
       parsedActiveId = effectiveClients.first.id;
     }
 
     final dw = (json['globalDeepWorkSecondsToday'] as num?)?.toInt() ??
         (json['totalDeepWorkToday'] as num?)?.toInt() ??
+        (json['dwSecs'] as num?)?.toInt() ??
         0;
     final waste = (json['globalWasteSecondsToday'] as num?)?.toInt() ??
         (json['totalWasteToday'] as num?)?.toInt() ??
+        (json['wasteSecs'] as num?)?.toInt() ??
         0;
     final defaultPurity = (dw + waste > 0) ? ((dw * 100) / (dw + waste)).round() : 100;
     final purity = (json['focusPurityPct'] as num?)?.toInt() ?? defaultPurity;
@@ -166,13 +170,19 @@ class DeviceStatus {
     return DeviceStatus(
       state: TrackerState.fromString(json['state'] as String? ?? 'IDLE'),
       activeClientId: parsedActiveId,
-      sessionSeconds: (json['sessionSeconds'] as num?)?.toInt() ?? 0,
+      sessionSeconds: (json['sessionSeconds'] as num?)?.toInt() ??
+          (json['sessionSecs'] as num?)?.toInt() ??
+          0,
       totalDeepWorkToday: dw,
       totalWasteToday: waste,
       focusPurityPct: purity,
-      globalGoal: (json['globalGoal'] as num?)?.toInt() ?? 14400,
+      globalGoal: (json['globalGoal'] as num?)?.toInt() ??
+          (json['goal'] as num?)?.toInt() ??
+          14400,
       brightness: (json['brightness'] as num?)?.toInt() ?? 255,
-      currentStreak: (json['currentStreak'] as num?)?.toInt() ?? 0,
+      currentStreak: (json['currentStreak'] as num?)?.toInt() ??
+          (json['streak'] as num?)?.toInt() ??
+          0,
       longestStreak: (json['longestStreak'] as num?)?.toInt() ?? 0,
       wellnessEnabled: json['wellnessEnabled'] as bool? ?? true,
       wellnessIntervalMinutes:

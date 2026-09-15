@@ -108,6 +108,7 @@ private:
                 configTime(NTP_GMT_OFFSET_SEC, NTP_DAYLIGHT_OFFSET_SEC, NTP_SERVER_PRIMARY, NTP_SERVER_SECONDARY);
                 Serial.println("[NTP] Real-World Clock Sync Initiated");
             } else if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
+                wifiConnected = false;
                 Serial.printf("\n[WIFI EVENT] Disconnected (%d).\n", info.wifi_sta_disconnected.reason);
             }
         });

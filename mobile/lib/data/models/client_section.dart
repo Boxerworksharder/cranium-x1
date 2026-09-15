@@ -70,7 +70,9 @@ class ClientSection {
     return ClientSection(
       id: json['id'] as int? ?? 0,
       name: json['name'] as String? ?? 'Section',
-      totalSecondsToday: (json['totalSecsToday'] as num?)?.toInt() ?? 0,
+      totalSecondsToday: (json['totalSecsToday'] as num?)?.toInt() ??
+          (json['todaySecs'] as num?)?.toInt() ??
+          0,
       reps: (json['reps'] as num?)?.toInt() ?? 0,
       history: rawHist
           .map((h) => HistoryEntry.fromJson(h as Map<String, dynamic>))
