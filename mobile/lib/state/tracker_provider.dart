@@ -1590,6 +1590,14 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  @visibleForTesting
+  void updateStatusForTesting(DeviceStatus newStatus) {
+    _status = newStatus;
+    _tasks = List.from(newStatus.tasks);
+    _reminders = List.from(newStatus.reminders);
+    notifyListeners();
+  }
+
   @override
   void dispose() {
     _isDisposed = true;

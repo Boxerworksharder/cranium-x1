@@ -1,8 +1,11 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../core/services/csv_export_service.dart';
 import '../../core/theme/app_theme.dart';
+import '../../data/models/client_section.dart';
+import '../../data/models/device_status.dart';
 import '../../state/tracker_provider.dart';
 import '../widgets/import_data_dialog.dart';
 
@@ -26,26 +29,304 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         final deepWorkClients = status.clients.where((c) => !c.isNegative).toList();
         final negativeClients = status.clients.where((c) => c.isNegative).toList();
 
+        final isTrackingOrPaused = status.state == TrackerState.tracking || status.state == TrackerState.paused;
+        final activeClient = status.activeClient;
+        final activeDeepWorkSecs = (isTrackingOrPaused && activeClient != null && !activeClient.isNegative) ? status.sessionSeconds : 0;
+        final activeWasteSecs = (isTrackingOrPaused && activeClient != null && activeClient.isNegative) ? status.sessionSeconds : 0;
+
         // Calculate all-time and session metrics for pure Deep Work
-        int totalMinsFocused = deepWorkClients.fold(0, (sum, c) => sum + (c.totalAccumulatedSecs ~/ 60));
-        if (totalMinsFocused == 0) totalMinsFocused = 161015; // default benchmark if fresh
+        final int totalDeepWorkSecs = deepWorkClients.fold<int>(0, (sum, c) => sum + c.totalAccumulatedSecs) + activeDeepWorkSecs;
+        final int totalMinsFocused = totalDeepWorkSecs ~/ 60;
 
-        int totalSessions = deepWorkClients.fold(0, (sum, c) => sum + c.history.length + (c.totalSecondsToday > 60 ? 1 : 0));
-        if (totalSessions == 0) totalSessions = 4346;
-
-        final streakDays = status.currentStreak > 0 ? status.currentStreak : 253;
-        final dailyAvgHrs = totalSessions > 0 ? '6.2h' : '0.0h';
+        final int totalSessions = deepWorkClients.fold<int>(0, (sum, c) => sum + c.history.length + (c.totalSecondsToday >= 60 ? 1 : 0));
+        final int streakDays = status.currentStreak;
 
         // Separate Metrics for Negative Activities / Time Sinks
-        final totalWasteSecsToday = status.totalWasteToday;
-        final totalWasteSecsAllTime = negativeClients.fold<int>(0, (sum, c) => sum + c.totalAccumulatedSecs);
-        final totalWasteSessions = negativeClients.fold<int>(0, (sum, c) => sum + c.history.length + (c.totalSecondsToday > 60 ? 1 : 0));
+        final totalWasteSecsToday = status.totalWasteToday + activeWasteSecs;
+        final totalWasteSecsAllTime = negativeClients.fold<int>(0, (sum, c) => sum + c.totalAccumulatedSecs) + activeWasteSecs;
+        final totalWasteSessions = negativeClients.fold<int>(0, (sum, c) => sum + c.history.length + (c.totalSecondsToday >= 60 ? 1 : 0));
         final purityPct = status.focusPurityPct;
 
-        final deepWorkSecsToday = status.totalDeepWorkToday;
+        // Focus Score (Purity) across all tracked time
+        final totalTrackedAllTime = totalDeepWorkSecs + totalWasteSecsAllTime;
+        final String focusScore = totalTrackedAllTime > 0
+            ? '${((totalDeepWorkSecs * 100) / totalTrackedAllTime).round()}%'
+            : (totalDeepWorkSecs > 0 ? '100%' : (totalSessions > 0 ? '${status.focusPurityPct}%' : '100%'));
+
+        final now = DateTime.now();
+
+        // Distinct active dates & calendar weeks & daily average
+        final Set<String> distinctDateStrings = {};
+        final Set<String> distinctWeekStrings = {};
+
+        if (status.totalDeepWorkToday >= 60 || activeDeepWorkSecs >= 60) {
+          distinctDateStrings.add(DateFormat('yyyy-MM-dd').format(now));
+          final weekNum = ((now.difference(DateTime(now.year, 1, 1)).inDays) / 7).floor();
+          distinctWeekStrings.add('${now.year}-W$weekNum');
+        }
+
+        for (final c in deepWorkClients) {
+          for (final h in c.history) {
+            if (h.seconds < 60) continue;
+            final dt = _parseEntryDate(h);
+            if (dt != null) {
+              distinctDateStrings.add(DateFormat('yyyy-MM-dd').format(dt));
+              final weekNum = ((dt.difference(DateTime(dt.year, 1, 1)).inDays) / 7).floor();
+              distinctWeekStrings.add('${dt.year}-W$weekNum');
+            }
+          }
+        }
+
+        final int weeksCount = distinctWeekStrings.length;
+        final String dailyAvgHrs = (distinctDateStrings.isNotEmpty && totalDeepWorkSecs > 0)
+            ? '${(totalDeepWorkSecs / distinctDateStrings.length / 3600.0).toStringAsFixed(1)}h'
+            : '0.0h';
+
+        // Weekday distribution for "Most Productive Day"
+        final List<int> weekdaySecs = List<int>.filled(7, 0);
+        final List<Set<String>> weekdayDistinctDates = List.generate(7, (_) => <String>{});
+
+        if (status.totalDeepWorkToday >= 60 || activeDeepWorkSecs >= 60) {
+          final dayIdx = now.weekday - 1; // Mon=0 .. Sun=6
+          weekdaySecs[dayIdx] += status.totalDeepWorkToday + activeDeepWorkSecs;
+          weekdayDistinctDates[dayIdx].add(DateFormat('yyyy-MM-dd').format(now));
+        }
+
+        for (final c in deepWorkClients) {
+          for (final h in c.history) {
+            if (h.seconds < 60) continue;
+            final dt = _parseEntryDate(h);
+            if (dt != null) {
+              final dayIdx = dt.weekday - 1;
+              weekdaySecs[dayIdx] += h.seconds;
+              weekdayDistinctDates[dayIdx].add(DateFormat('yyyy-MM-dd').format(dt));
+            }
+          }
+        }
+
+        int maxDaySecs = 0;
+        int peakDayIndex = -1;
+        for (int i = 0; i < 7; i++) {
+          if (weekdaySecs[i] > maxDaySecs) {
+            maxDaySecs = weekdaySecs[i];
+            peakDayIndex = i;
+          }
+        }
+
+        const weekdayPlural = ['Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays', 'Sundays'];
+        const weekdayChars = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+
+        final String peakDayTitle = maxDaySecs > 0 && peakDayIndex >= 0 ? weekdayPlural[peakDayIndex] : 'No data yet';
+        final String peakDaySubtitle = maxDaySecs > 0 && peakDayIndex >= 0
+            ? 'Avg. ${_formatDurationHoursMins(maxDaySecs ~/ (weekdayDistinctDates[peakDayIndex].isNotEmpty ? weekdayDistinctDates[peakDayIndex].length : 1))}'
+            : 'Log sessions to see peak day';
+
+        final deepWorkSecsToday = status.totalDeepWorkToday + activeDeepWorkSecs;
         final totalTrackedSecsToday = deepWorkSecsToday + totalWasteSecsToday;
         final deepWorkRatio = totalTrackedSecsToday > 0 ? (deepWorkSecsToday / totalTrackedSecsToday).clamp(0.0, 1.0) : 1.0;
         final wasteRatio = totalTrackedSecsToday > 0 ? (totalWasteSecsToday / totalTrackedSecsToday).clamp(0.0, 1.0) : 0.0;
+
+        // Trajectory Histogram calculation based on _selectedFilterIndex
+        int numBuckets = 14;
+        List<String> bucketLabels = [];
+        List<int> bucketSecs = [];
+
+        if (_selectedFilterIndex == 0) {
+          // Days: Last 14 days ending today
+          numBuckets = 14;
+          bucketSecs = List.filled(numBuckets, 0);
+          final startDay = DateTime(now.year, now.month, now.day).subtract(Duration(days: numBuckets - 1));
+
+          for (int i = 0; i < numBuckets; i++) {
+            final dayDate = startDay.add(Duration(days: i));
+            final dayKey = DateFormat('yyyy-MM-dd').format(dayDate);
+
+            if (dayKey == DateFormat('yyyy-MM-dd').format(now)) {
+              bucketSecs[i] += status.totalDeepWorkToday + activeDeepWorkSecs;
+            }
+            for (final c in deepWorkClients) {
+              for (final h in c.history) {
+                final dt = _parseEntryDate(h);
+                if (dt != null && DateFormat('yyyy-MM-dd').format(dt) == dayKey) {
+                  bucketSecs[i] += h.seconds;
+                }
+              }
+            }
+          }
+          bucketLabels = [
+            DateFormat('MMM d').format(startDay),
+            DateFormat('MMM d').format(startDay.add(const Duration(days: 4))),
+            DateFormat('MMM d').format(startDay.add(const Duration(days: 7))),
+            DateFormat('MMM d').format(startDay.add(const Duration(days: 10))),
+            DateFormat('MMM d').format(now),
+          ];
+        } else if (_selectedFilterIndex == 1) {
+          // Weeks: Last 8 weeks ending this week
+          numBuckets = 8;
+          bucketSecs = List.filled(numBuckets, 0);
+          for (int i = 0; i < numBuckets; i++) {
+            final weekEnd = DateTime(now.year, now.month, now.day).subtract(Duration(days: (numBuckets - 1 - i) * 7));
+            final weekStart = weekEnd.subtract(const Duration(days: 6));
+
+            for (final c in deepWorkClients) {
+              for (final h in c.history) {
+                final dt = _parseEntryDate(h);
+                if (dt != null && !dt.isBefore(weekStart) && !dt.isAfter(weekEnd.add(const Duration(days: 1)))) {
+                  bucketSecs[i] += h.seconds;
+                }
+              }
+            }
+            if (i == numBuckets - 1) {
+              bucketSecs[i] += status.totalDeepWorkToday + activeDeepWorkSecs;
+            }
+          }
+          bucketLabels = ['8w ago', '6w ago', '4w ago', '2w ago', 'This week'];
+        } else if (_selectedFilterIndex == 2) {
+          // Months: Last 6 months ending this month
+          numBuckets = 6;
+          bucketSecs = List.filled(numBuckets, 0);
+          for (int i = 0; i < numBuckets; i++) {
+            final mDate = DateTime(now.year, now.month - (numBuckets - 1 - i), 1);
+            final mYear = mDate.year;
+            final mMonth = mDate.month;
+            for (final c in deepWorkClients) {
+              for (final h in c.history) {
+                final dt = _parseEntryDate(h);
+                if (dt != null && dt.year == mYear && dt.month == mMonth) {
+                  bucketSecs[i] += h.seconds;
+                }
+              }
+            }
+            if (mYear == now.year && mMonth == now.month) {
+              bucketSecs[i] += status.totalDeepWorkToday + activeDeepWorkSecs;
+            }
+          }
+          bucketLabels = List.generate(numBuckets, (i) {
+            final mDate = DateTime(now.year, now.month - (numBuckets - 1 - i), 1);
+            return DateFormat('MMM').format(mDate);
+          });
+        } else {
+          // Years: Last 3 years
+          numBuckets = 3;
+          bucketSecs = List.filled(numBuckets, 0);
+          for (int i = 0; i < numBuckets; i++) {
+            final y = now.year - (numBuckets - 1 - i);
+            for (final c in deepWorkClients) {
+              for (final h in c.history) {
+                final dt = _parseEntryDate(h);
+                if (dt != null && dt.year == y) {
+                  bucketSecs[i] += h.seconds;
+                }
+              }
+            }
+            if (y == now.year) {
+              bucketSecs[i] += status.totalDeepWorkToday + activeDeepWorkSecs;
+            }
+          }
+          bucketLabels = List.generate(numBuckets, (i) => '${now.year - (numBuckets - 1 - i)}');
+        }
+
+        int maxBucketSecs = 0;
+        for (final s in bucketSecs) {
+          if (s > maxBucketSecs) maxBucketSecs = s;
+        }
+
+        // Total This Month calculation
+        int thisMonthSecs = 0;
+        int lastMonthSecs = 0;
+        final lastMonthDate = DateTime(now.year, now.month - 1, 1);
+
+        for (final c in deepWorkClients) {
+          for (final h in c.history) {
+            final dt = _parseEntryDate(h);
+            if (dt != null) {
+              if (dt.year == now.year && dt.month == now.month) {
+                thisMonthSecs += h.seconds;
+              } else if (dt.year == lastMonthDate.year && dt.month == lastMonthDate.month) {
+                lastMonthSecs += h.seconds;
+              }
+            }
+          }
+        }
+        thisMonthSecs += status.totalDeepWorkToday + activeDeepWorkSecs;
+
+        final String thisMonthFormatted = _formatDurationHoursMins(thisMonthSecs);
+        String monthTrendText = '—';
+        Color monthTrendColor = AppTheme.textSecondary;
+        IconData monthTrendIcon = Icons.remove;
+
+        if (thisMonthSecs > 0 && lastMonthSecs == 0) {
+          monthTrendText = 'NEW';
+          monthTrendColor = AppTheme.accentSage;
+          monthTrendIcon = Icons.trending_up_rounded;
+        } else if (lastMonthSecs > 0) {
+          final pct = (((thisMonthSecs - lastMonthSecs) / lastMonthSecs) * 100).round();
+          if (pct >= 0) {
+            monthTrendText = '↑ $pct%';
+            monthTrendColor = AppTheme.accentSage;
+            monthTrendIcon = Icons.show_chart_rounded;
+          } else {
+            monthTrendText = '↓ ${pct.abs()}%';
+            monthTrendColor = const Color(0xFFFF453A);
+            monthTrendIcon = Icons.trending_down_rounded;
+          }
+        }
+
+        // Focus Rhythm (When We Focus) Heatmap calculation
+        final List<List<int>> heatmapGrid = List.generate(5, (_) => List.filled(7, 0));
+        const timeRowLabels = ['12 AM', '6 AM', '12 PM', '6 PM', '9 PM'];
+
+        int getHourRow(int hour) {
+          if (hour < 6) return 0;
+          if (hour < 12) return 1;
+          if (hour < 17) return 2;
+          if (hour < 21) return 3;
+          return 4;
+        }
+
+        if (status.totalDeepWorkToday >= 60 || activeDeepWorkSecs >= 60) {
+          final r = getHourRow(now.hour);
+          final c = now.weekday - 1;
+          heatmapGrid[r][c] += status.totalDeepWorkToday + activeDeepWorkSecs;
+        }
+
+        for (final c in deepWorkClients) {
+          for (final h in c.history) {
+            if (h.seconds < 60) continue;
+            final dt = _parseEntryDate(h);
+            if (dt != null) {
+              final r = getHourRow(dt.hour);
+              final col = dt.weekday - 1;
+              heatmapGrid[r][col] += h.seconds;
+            }
+          }
+        }
+
+        int maxHeatmapSecs = 0;
+        int peakHeatmapRow = 0;
+        for (int r = 0; r < 5; r++) {
+          for (int c = 0; c < 7; c++) {
+            if (heatmapGrid[r][c] > maxHeatmapSecs) {
+              maxHeatmapSecs = heatmapGrid[r][c];
+              peakHeatmapRow = r;
+            }
+          }
+        }
+
+        final allTimeFocusBlocks = deepWorkClients.fold<int>(0, (sum, c) => sum + c.history.length + (c.totalSecondsToday >= 60 ? 1 : 0));
+
+        final String heatmapTitle = maxHeatmapSecs > 0
+            ? 'The ${timeRowLabels[peakHeatmapRow].toLowerCase()} focus.'
+            : 'Focus distribution.';
+        final String heatmapSubtitle = maxHeatmapSecs > 0
+            ? "You're most consistent at ${timeRowLabels[peakHeatmapRow]}.\nThat's when you do your best work."
+            : 'Track focus sessions to reveal your rhythm.';
+
+        final String bestTimeValue = maxHeatmapSecs > 0 ? timeRowLabels[peakHeatmapRow] : '—';
+        final String bestTimeSubtitle = maxHeatmapSecs > 0
+            ? 'Avg. ${_formatDurationHoursMins(maxHeatmapSecs)}'
+            : 'No sessions yet';
+        final String allTimeBlocksValue = NumberFormat('#,###').format(allTimeFocusBlocks);
 
         return RefreshIndicator(
           onRefresh: () => tracker.refreshData(),
@@ -95,13 +376,13 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                         children: [
                           Expanded(child: _buildReceiptCell('$streakDays', 'DEEP WORK DAYS')),
                           Container(width: 1, height: 50, color: AppTheme.borderSubtle),
-                          Expanded(child: _buildReceiptCell('87%', 'FOCUS SCORE')),
+                          Expanded(child: _buildReceiptCell(focusScore, 'FOCUS SCORE')),
                         ],
                       ),
                       Divider(color: AppTheme.borderSubtle, height: 24),
                       Row(
                         children: [
-                          Expanded(child: _buildReceiptCell('12', 'WEEKS & COUNTING')),
+                          Expanded(child: _buildReceiptCell('$weeksCount', 'WEEKS & COUNTING')),
                           Container(width: 1, height: 50, color: AppTheme.borderSubtle),
                           Expanded(child: _buildReceiptCell(dailyAvgHrs, 'DAILY AVERAGE')),
                         ],
@@ -149,23 +430,19 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                     children: [
                       Text('MOST PRODUCTIVE DAY', style: AppTheme.technicalLabel()),
                       const SizedBox(height: 4),
-                      Text('Tuesdays', style: AppTheme.editorialTitle(fontSize: 20)),
-                      Text('Avg. 4h 12m', style: AppTheme.bodyLabel(fontSize: 12, color: AppTheme.textSecondary)),
+                      Text(peakDayTitle, style: AppTheme.editorialTitle(fontSize: 20)),
+                      Text(peakDaySubtitle, style: AppTheme.bodyLabel(fontSize: 12, color: AppTheme.textSecondary)),
                       const SizedBox(height: 16),
 
                       // Day of week bars: M T W T F S S
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceAround,
                         crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          _buildDayBar('M', 28, false),
-                          _buildDayBar('T', 48, true), // Tuesday peak
-                          _buildDayBar('W', 36, false),
-                          _buildDayBar('T', 24, false),
-                          _buildDayBar('F', 20, false),
-                          _buildDayBar('S', 14, false),
-                          _buildDayBar('S', 18, false),
-                        ],
+                        children: List.generate(7, (i) {
+                          final double barHeight = maxDaySecs > 0 ? math.max(4.0, (weekdaySecs[i] / maxDaySecs) * 48.0) : 4.0;
+                          final bool isPeak = i == peakDayIndex && maxDaySecs > 0;
+                          return _buildDayBar(weekdayChars[i], barHeight, isPeak);
+                        }),
                       ),
                     ],
                   ),
@@ -507,29 +784,35 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                             borderRadius: BorderRadius.circular(4),
                             border: Border.all(color: AppTheme.borderSubtle),
                           ),
-                          child: Text('5h 24m', style: AppTheme.technicalLabel(fontSize: 10, color: AppTheme.accentPrimary)),
+                          child: Text(
+                            maxBucketSecs > 0 ? _formatDurationHoursMins(maxBucketSecs) : '0h 00m',
+                            style: AppTheme.technicalLabel(fontSize: 10, color: AppTheme.accentPrimary),
+                          ),
                         ),
                       ),
                       const SizedBox(height: 10),
 
-                      // Histogram
+                      // Dynamic Histogram
                       SizedBox(
                         height: 90,
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.end,
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: List.generate(20, (i) {
-                            final heights = [
-                              20, 35, 25, 45, 60, 40, 50, 75, 55, 65, 88, 70, 50, 60, 45, 35, 50, 40, 30, 25
-                            ];
-                            final h = heights[i % heights.length].toDouble();
-                            final isMax = i == 10;
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: List.generate(numBuckets, (i) {
+                            final double h = maxBucketSecs > 0 ? math.max(4.0, (bucketSecs[i] / maxBucketSecs) * 80.0) : 4.0;
+                            final bool isMax = maxBucketSecs > 0 && bucketSecs[i] == maxBucketSecs;
+                            final double barWidth = numBuckets <= 4 ? 24.0 : (numBuckets <= 8 ? 16.0 : 10.0);
                             return Container(
-                              width: 8,
+                              width: barWidth,
                               height: h,
                               decoration: BoxDecoration(
-                                color: isMax ? AppTheme.accentPrimary : AppTheme.accentSage.withOpacity(0.65),
+                                color: isMax
+                                    ? AppTheme.accentPrimary
+                                    : (bucketSecs[i] > 0
+                                        ? AppTheme.accentSage.withOpacity(0.65)
+                                        : AppTheme.bgPanel),
                                 borderRadius: BorderRadius.circular(2),
+                                border: bucketSecs[i] == 0 ? Border.all(color: AppTheme.borderSubtle, width: 0.5) : null,
                               ),
                             );
                           }),
@@ -539,13 +822,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text('Sep 1', style: AppTheme.technicalLabel(fontSize: 9)),
-                          Text('Sep 8', style: AppTheme.technicalLabel(fontSize: 9)),
-                          Text('Sep 15', style: AppTheme.technicalLabel(fontSize: 9)),
-                          Text('Sep 22', style: AppTheme.technicalLabel(fontSize: 9)),
-                          Text('Sep 30', style: AppTheme.technicalLabel(fontSize: 9)),
-                        ],
+                        children: bucketLabels
+                            .map((label) => Text(label, style: AppTheme.technicalLabel(fontSize: 9)))
+                            .toList(),
                       ),
                     ],
                   ),
@@ -569,14 +848,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                         children: [
                           Text('TOTAL THIS MONTH', style: AppTheme.technicalLabel()),
                           const SizedBox(height: 4),
-                          Text('68h 24m', style: AppTheme.editorialTitle(fontSize: 22)),
+                          Text(thisMonthFormatted, style: AppTheme.editorialTitle(fontSize: 22)),
                         ],
                       ),
                       Row(
                         children: [
-                          Icon(Icons.show_chart_rounded, size: 28, color: AppTheme.accentSage),
+                          Icon(monthTrendIcon, size: 24, color: monthTrendColor),
                           const SizedBox(width: 4),
-                          Text('↑ 18%', style: AppTheme.technicalLabel(color: AppTheme.accentSage, fontSize: 11)),
+                          Text(monthTrendText, style: AppTheme.technicalLabel(color: monthTrendColor, fontSize: 11)),
                         ],
                       ),
                     ],
@@ -601,22 +880,22 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 const SizedBox(height: 24),
 
                 // ==========================================
-                // 3. "THE 9PM SPIKE" HEATMAP (Screenshot 5)
+                // 3. "THE 9PM SPIKE" / FOCUS RHYTHM HEATMAP
                 // ==========================================
                 Text('WHEN WE FOCUS', style: AppTheme.technicalLabel()),
                 const SizedBox(height: 4),
                 Text(
-                  'The 9pm spike.',
+                  heatmapTitle,
                   style: AppTheme.editorialTitle(fontSize: 28, fontWeight: FontWeight.w500),
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  "You're most consistent in the evening.\nThat's when you do your best work.",
+                  heatmapSubtitle,
                   style: AppTheme.bodyLabel(color: AppTheme.textSecondary),
                 ),
                 const SizedBox(height: 16),
 
-                // Heatmap Grid: Hours (12 AM, 6 AM, 12 PM, 6 PM, 12 AM) x Days (M T W T F S S)
+                // Heatmap Grid: Hours (12 AM, 6 AM, 12 PM, 6 PM, 9 PM) x Days (M T W T F S S)
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
@@ -640,7 +919,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                       ),
                       const SizedBox(height: 8),
 
-                      ...['12 AM', '6 AM', '12 PM', '6 PM', '9 PM'].asMap().entries.map((row) {
+                      ...timeRowLabels.asMap().entries.map((row) {
                         return Padding(
                           padding: const EdgeInsets.symmetric(vertical: 2.0),
                           child: Row(
@@ -650,17 +929,16 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                 child: Text(row.value, style: AppTheme.technicalLabel(fontSize: 8.5)),
                               ),
                               ...List.generate(7, (col) {
-                                // 9 PM has highest intensity (warm sand)
-                                final isSpike = row.key == 4 && (col == 1 || col == 2 || col == 3);
-                                final isMid = (row.key == 3 || row.key == 4);
-
+                                final secs = heatmapGrid[row.key][col];
                                 Color cellColor;
-                                if (isSpike) {
-                                  cellColor = AppTheme.accentPrimary;
-                                } else if (isMid) {
-                                  cellColor = AppTheme.accentSage.withOpacity(0.6);
-                                } else {
+                                if (maxHeatmapSecs == 0 || secs == 0) {
                                   cellColor = AppTheme.bgPanel;
+                                } else if (secs == maxHeatmapSecs) {
+                                  cellColor = AppTheme.accentPrimary;
+                                } else if (secs >= maxHeatmapSecs * 0.4) {
+                                  cellColor = AppTheme.accentSage.withOpacity(0.65);
+                                } else {
+                                  cellColor = AppTheme.accentSage.withOpacity(0.3);
                                 }
 
                                 return Expanded(
@@ -670,6 +948,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                                     decoration: BoxDecoration(
                                       color: cellColor,
                                       borderRadius: BorderRadius.circular(2),
+                                      border: (maxHeatmapSecs == 0 || secs == 0)
+                                          ? Border.all(color: AppTheme.borderSubtle.withOpacity(0.4), width: 0.5)
+                                          : null,
                                     ),
                                   ),
                                 );
@@ -700,8 +981,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                           children: [
                             Text('BEST TIME', style: AppTheme.technicalLabel(fontSize: 9)),
                             const SizedBox(height: 4),
-                            Text('9:00 PM', style: AppTheme.editorialTitle(fontSize: 18)),
-                            Text('Avg. 4h 12m', style: AppTheme.bodyLabel(fontSize: 11, color: AppTheme.textSecondary)),
+                            Text(bestTimeValue, style: AppTheme.editorialTitle(fontSize: 18)),
+                            Text(bestTimeSubtitle, style: AppTheme.bodyLabel(fontSize: 11, color: AppTheme.textSecondary)),
                           ],
                         ),
                       ),
@@ -720,7 +1001,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                           children: [
                             Text('ALL TIME', style: AppTheme.technicalLabel(fontSize: 9)),
                             const SizedBox(height: 4),
-                            Text('3,802', style: AppTheme.editorialTitle(fontSize: 18)),
+                            Text(allTimeBlocksValue, style: AppTheme.editorialTitle(fontSize: 18)),
                             Text('Focus blocks', style: AppTheme.bodyLabel(fontSize: 11, color: AppTheme.textSecondary)),
                           ],
                         ),
@@ -849,5 +1130,21 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         Text(day, style: AppTheme.technicalLabel(fontSize: 10)),
       ],
     );
+  }
+
+  DateTime? _parseEntryDate(HistoryEntry entry) {
+    if (entry.timestamp.isNotEmpty) {
+      final dt = DateTime.tryParse(entry.timestamp.replaceAll(' ', 'T'));
+      if (dt != null) return dt;
+    }
+    if (entry.date.isNotEmpty) {
+      try {
+        return DateFormat('d MMM yyyy').parseLoose(entry.date);
+      } catch (_) {}
+      try {
+        return DateFormat('dd MMM yyyy').parseLoose(entry.date);
+      } catch (_) {}
+    }
+    return null;
   }
 }
