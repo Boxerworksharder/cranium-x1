@@ -1,20 +1,21 @@
 # TITIKSHA X1 · Tactical Focus & Habit Tracking Engine ⚡
-> **Release**: Version 1.0.0 (Stable Production Firmware) · ESP32-C3 SuperMini Edition
+> **Release**: Version 1.8.0 (Stable Production Firmware) · ESP32-C3 & ESP32-WROOM-32 Multi-Board Edition
 
-**TITIKSHA X1** is an open-source, ultra-low latency hardware time tracker, habit ledger, and deep work engine powered by the **ESP32-C3 SuperMini**. It pairs physical tactile controls (Rotary Encoder + Tally Clicker + 0.96" OLED) with an embedded Glassmorphism Web Cockpit and a real-time Bluetooth Low Energy (BLE 5.0) Android Web Companion.
+**TITIKSHA X1** is an open-source, ultra-low latency hardware time tracker, habit ledger, and deep work engine powered by the **ESP32-C3** and **ESP32-WROOM-32**. It pairs physical tactile controls (Rotary Encoder + Tally Clicker + 0.96"/1.3" OLED) with real-time Bluetooth Low Energy (BLE 5.0 GATT) Android companion sync, offline queuing, and physical hard reset capabilities.
 
 ---
 
 ## 📸 Key Features
 
-- **Hardware Cockpit**: 0.96" SH1106 I2C OLED (128x64) with smooth micro-slide page transitions, dynamic mastery levels (`LVL 0`–`LVL 5`), and auto-dimming screen saver.
-- **Physical Controls**: Rotary encoder for seamless category selection and session pausing, plus a dedicated hardware tally clicker button for habit rep logging.
-- **Embedded Web Cockpit**: High-framerate Glassmorphism HUD served directly from ESP32 flash memory via GZIP compression (zero external hosting required).
-- **Web Bluetooth PWA**: Direct zero-APK Android Chrome companion over BLE GATT. Control and log telemetry offline without a local Wi-Fi router.
+- **Hardware Cockpit**: 0.96"/1.3" SH1106 / SSD1306 I2C OLED (128x64) with smooth micro-slide transitions, micro-dot page indicators (`● ○`), dynamic mastery levels (`LVL 0`–`LVL 5`), and auto-dimming screensaver.
+- **Physical Rotary Menu & Hard Reset**: Rotary encoder for seamless category selection and session pausing, plus dedicated physical rotary menu containing `>> ZERO HARD RESET <<` for instant hardware zero-wipes.
+- **Dedicated Tally Clicker Button**: Physical button (GPIO 21) for habit rep logging and toggling negative/time sink categories.
+- **Pure BLE 5.0 GATT Engine**: 1Hz streaming telemetry, chunked MTU packets, and bidirectional task/daily notes synchronization.
+- **Dual Board Architecture**: Preconfigured builds for both ESP32-C3 SuperMini (RISC-V) and standard ESP32-WROOM-32 Dev Module (Xtensa).
 - **Daily Streak Engine**: Automatic midnight rollover evaluation with active in-progress session straddle support.
-- **Thread-Safe Architecture**: Full FreeRTOS mutex synchronization across Web Server, BLE tasks, ISR interrupts, and display rendering loops.
+- **Thread-Safe Architecture**: Full FreeRTOS mutex synchronization across BLE tasks, ISR interrupts, and display rendering loops.
 - **Safe Persistence**: LittleFS flash memory storage with power-loss protection and JSON integrity validation.
-- **Instant Data Management**: One-click data reset with safety modal confirmation, live CSV exports, and JSON database backup/restore.
+- **Guaranteed Zero Reset**: Dual-wipe support via both BLE remote commands and direct on-device rotary menu trigger.
 
 ---
 
@@ -81,12 +82,20 @@ Open `include/config.h` and edit your Wi-Fi network:
 *(If pushing to a public repository, use `include/config.example.h` as a reference and add `include/config.h` to your `.gitignore`).*
 
 ### 3. Build & Flash Firmware
-Connect your ESP32-C3 SuperMini via USB-C and run:
-```bash
-# Compile and upload firmware to ESP32
-pio run -t upload
+Connect your board via USB and compile/upload for your specific target:
 
-# Open the serial monitor (115200 baud)
+- **ESP32-C3 SuperMini**:
+  ```bash
+  pio run -e esp32-c3 -t upload
+  ```
+
+- **ESP32-WROOM-32 DevKit**:
+  ```bash
+  pio run -e esp32dev -t upload
+  ```
+
+Open the serial monitor (115200 baud):
+```bash
 pio device monitor -b 115200
 ```
 
