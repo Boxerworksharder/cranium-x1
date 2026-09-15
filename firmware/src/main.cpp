@@ -296,24 +296,7 @@ void handleButtons() {
 
     static TrackerState previousStateBeforeGlance = STATE_SELECT_CLIENT;
 
-    // Instant Wake-Up: If display is dimmed, wake on ANY physical button touch
-    if (tracker.isDimmed) {
-        bool rawPressed = (digitalRead(PIN_ENCODER_SW) == LOW) || 
-                          (digitalRead(PIN_TALLY_BUTTON) == LOW)
-                          #ifdef PIN_SESSIONS_BUTTON
-                          || (digitalRead(PIN_SESSIONS_BUTTON) == LOW)
-                          #endif
-                          ;
-        if (rawPressed) {
-            TrackerLock lock;
-            u8g2.setPowerSave(0);
-            u8g2.setContrast(tracker.activeBrightness);
-            tracker.isDimmed = false;
-            tracker.recordUserActivity();
-            needsRedraw = true;
-        }
-    }
-
+    // Wake-Up is handled cleanly by debounced button and encoder events below
     if (knobEvt != ButtonHandler::NONE || tallyEvt != ButtonHandler::NONE || sessEvt != ButtonHandler::NONE) {
         TrackerLock lock;
         if (tracker.isDimmed) {
@@ -648,10 +631,27 @@ void loop() {
     handleButtons();
 
     // 2. OLED Screen Saver (Idle Timeout Dimming)
-    if (!tracker.isDimmed && (millis() - tracker.lastActivityMillis >= IDLE_DIM_TIMEOUT_MS)) {
-        uint8_t dimmedVal = max(100, (int)(tracker.activeBrightness * 2 / 3));
-        u8g2.setContrast(dimmedVal);
+    // Keep display steady at configured brightness during tracking, breathing, or menu adjustments
+    bool canDim = (tracker.state != STATE_TRACKING && 
+                   tracker.state != STATE_STRESS_BUSTER && 
+                   tracker.state != STATE_SET_BRIGHTNESS);
+
+    if (canDim && !tracker.isDimmed && (millis() - tracker.lastActivityMillis >= IDLE_DIM_TIMEOUT_MS)) {
+        // Dim proportionally, but NEVER exceed or increase above activeBrightness
+        uint8_t dimmedVal = (tracker.activeBrightness > 30) ? (tracker.activeBrightness / 3) : 10;
+        if (dimmedVal > tracker.activeBrightness) {
+            dimmedVal = tracker.activeBrightness;
+        }
+        if (dimmedVal < tracker.activeBrightness) {
+            u8g2.setContrast(dimmedVal);
+        }
         tracker.isDimmed = true;
+    } else if (!canDim && tracker.isDimmed) {
+        // Session actively running or breathing: restore steady user-configured contrast
+        u8g2.setPowerSave(0);
+        u8g2.setContrast(tracker.activeBrightness);
+        tracker.isDimmed = false;
+        needsRedraw = true;
     }
 
     // Micro-slide smooth transition
