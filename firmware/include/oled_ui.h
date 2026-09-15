@@ -329,22 +329,17 @@ inline void renderClientSelectScreen() {
     }
 
     u8g2.drawHLine(0, 52, 128);
-    if (selected < totalClients) {
-        u8g2.setFont(u8g2_font_4x6_tf);
-        if (tracker.clients[selected].isNegative) {
-            u8g2.drawStr(2, 60, "CLICK: TRACK SINK | TALLY: DW");
+    int dotCount = totalItems > 14 ? 14 : totalItems;
+    int dotStartX = (128 - (dotCount * 7)) / 2;
+    int activeDot = selected;
+    if (totalItems > 14 && totalItems > 1) {
+        activeDot = (selected * (dotCount - 1)) / (totalItems - 1);
+    }
+    for (int d = 0; d < dotCount; d++) {
+        if (d == activeDot) {
+            u8g2.drawDisc(dotStartX + (d * 7) + 3, 58, 2);
         } else {
-            u8g2.drawStr(2, 60, "CLICK: TRACK DW | TALLY: SINK");
-        }
-    } else {
-        int dotCount = totalItems > 14 ? 14 : totalItems;
-        int dotStartX = (128 - (dotCount * 7)) / 2;
-        for (int d = 0; d < dotCount; d++) {
-            if (d == selected || (selected >= dotCount && d == dotCount - 1)) {
-                u8g2.drawDisc(dotStartX + (d * 7) + 3, 58, 2);
-            } else {
-                u8g2.drawCircle(dotStartX + (d * 7) + 3, 58, 2);
-            }
+            u8g2.drawCircle(dotStartX + (d * 7) + 3, 58, 2);
         }
     }
 
