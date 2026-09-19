@@ -115,7 +115,6 @@ public:
     // Robustness State
     unsigned long lastActivityMillis = 0;
     unsigned long lastAutoSaveMillis = 0;
-    int lastMidnightCheckDay = -1;
     bool isDimmed = false;
     uint8_t activeBrightness = 255; // 10 to 255 (OLED SSD1306 contrast)
 
@@ -632,20 +631,12 @@ public:
     bool checkMidnightRollover() {
         struct tm timeinfo;
         if (!getLocalTime(&timeinfo, 30)) return false;
+        if (timeinfo.tm_year < (2025 - 1900)) return false;
 
-        int currentDay = timeinfo.tm_mday;
-        if (lastMidnightCheckDay == -1) {
-            lastMidnightCheckDay = currentDay;
-            return false;
-        }
-
-        if (currentDay != lastMidnightCheckDay) {
-            time_t now = time(nullptr) - 86400;
-            struct tm yinfo;
-            localtime_r(&now, &yinfo);
-            char yDateBuf[32];
-            strftime(yDateBuf, sizeof(yDateBuf), "%d %b %Y", &yinfo);
-            String yesterdayStr = String(yDateBuf);
+        String todayStr = getSystemDate();
+        
+        if (lastActiveDate.length() > 0 && lastActiveDate != "02 Sep 2026" && lastActiveDate != todayStr) {
+            String yesterdayStr = lastActiveDate;
 
             // Active tracking straddle: credit pre-midnight seconds to yesterday
             if ((state == STATE_TRACKING || state == STATE_PAUSED) && currentSessionSeconds > 0) {
@@ -696,10 +687,11 @@ public:
                 currentStreakDays = 0;
             }
 
-            lastMidnightCheckDay = currentDay;
-            lastActiveDate = getSystemDate();
+            lastActiveDate = todayStr;
             return true;
         }
+
+        lastActiveDate = todayStr;
         return false;
     }
 };

@@ -22,6 +22,7 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
   final BleService _bleService;
   Timer? _pollTimer;
   Timer? _localTicker;
+  Timer? _midnightTimer;
 
   bool _isOnline = false;
   bool _isLoading = false;
@@ -295,6 +296,14 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
     } else {
       notifyListeners();
     }
+    
+    // Set current active date if not set, and start midnight checking
+    final currentDate = DateFormat('dd MMM yyyy').format(DateTime.now());
+    if (prefs.getString('pref_last_active_date') == null) {
+      await prefs.setString('pref_last_active_date', currentDate);
+    }
+    _checkLocalMidnightRollover();
+    _startMidnightTimer();
   }
 
   Future<void> _saveCachedStatus() async {
@@ -1753,12 +1762,100 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
+  void _startMidnightTimer() {
+    _midnightTimer?.cancel();
+    _midnightTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      _checkLocalMidnightRollover();
+    });
+  }
+
+  Future<void> _checkLocalMidnightRollover() async {
+    // Local rollover logic. We do not perform local rollover if we are online via Wi-Fi or BLE,
+    // because the firmware handles the rollover and we simply sync the state.
+    if (_isOnline) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    final lastDate = prefs.getString('pref_last_active_date') ?? '';
+    final today = DateFormat('dd MMM yyyy').format(DateTime.now());
+
+    if (lastDate.isNotEmpty && lastDate != today) {
+      debugPrint('[TrackerProvider] Local midnight rollover triggered. Rolling $lastDate to $today');
+
+      // Straddling session handler
+      if (_status.state == TrackerState.tracking || _status.state == TrackerState.paused) {
+        final cIdx = _status.clients.indexWhere((c) => c.id == _status.activeClientId);
+        if (cIdx != -1) {
+          final c = _status.clients[cIdx];
+          _status = _status.copyWith(
+            clients: _status.clients.map((xc) => xc.id == c.id ? c.copyWith(totalSecondsToday: c.totalSecondsToday + _status.sessionSeconds) : xc).toList(),
+            sessionSeconds: 0,
+          );
+        }
+      }
+
+      int newStreak = _status.currentStreak;
+      int newLongest = _status.longestStreak;
+      if (_status.totalDeepWorkToday >= _status.globalGoal) {
+        newStreak++;
+        if (newStreak > newLongest) {
+          newLongest = newStreak;
+        }
+      } else {
+        newStreak = 0;
+      }
+
+      final updatedClients = <ClientSection>[];
+      for (final c in _status.clients) {
+        if (c.totalSecondsToday > 0 || c.reps > 0) {
+          int alreadyArchived = 0;
+          for (final h in c.history) {
+            if (h.date == lastDate) alreadyArchived += h.seconds;
+          }
+          final int unarchived = c.totalSecondsToday - alreadyArchived;
+
+          final newHistory = List<HistoryEntry>.from(c.history);
+          if (unarchived > 0 || c.reps > 0) {
+            newHistory.insert(0, HistoryEntry(
+              timestamp: '$lastDate 23:59:59',
+              date: lastDate,
+              seconds: unarchived > 0 ? unarchived : 0,
+              reps: c.reps,
+            ));
+            if (newHistory.length > 50) newHistory.removeLast();
+          }
+
+          updatedClients.add(c.copyWith(
+            totalSecondsToday: 0,
+            reps: 0,
+            history: newHistory,
+          ));
+        } else {
+          updatedClients.add(c);
+        }
+      }
+
+      _status = _status.copyWith(
+        clients: updatedClients,
+        totalDeepWorkToday: 0,
+        totalWasteToday: 0,
+        focusPurityPct: 100,
+        currentStreak: newStreak,
+        longestStreak: newLongest,
+      );
+
+      await prefs.setString('pref_last_active_date', today);
+      _saveCachedStatus();
+      notifyListeners();
+    }
+  }
+
   @override
   void dispose() {
     _isDisposed = true;
     WidgetsBinding.instance.removeObserver(this);
     _pollTimer?.cancel();
     _localTicker?.cancel();
+    _midnightTimer?.cancel();
     _bleTelemetrySub?.cancel();
     _bleConnSub?.cancel();
     _bleService.dispose();
