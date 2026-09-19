@@ -547,15 +547,28 @@ void handleButtons() {
                 tracker.cancelStressBuster();
                 needsRedraw = true;
             }
-        } else if (tracker.state == STATE_SELECT_CLIENT && tracker.menuIndex < (int)tracker.clients.size()) {
-            // Tally Button while highlighting a section in Main Menu:
-            // Toggles section between DEEP WORK and TIME SINK!
+        } else if (tracker.state == STATE_SELECT_CLIENT) {
+            // Tally Button while in Main Menu: Open the Daily Checklist
             if (tallyEvt == ButtonHandler::CLICK) {
-                tracker.clients[tracker.menuIndex].isNegative = !tracker.clients[tracker.menuIndex].isNegative;
-                tracker.markDirty();
-                bleManager.requestImmediateBroadcast();
+                triggerStatusLedFlash(150);
                 HapticManager::pulseTap();
-                triggerStatusLedFlash(120);
+                previousStateBeforeGlance = tracker.state;
+                tracker.state = STATE_VIEW_CHECKLIST;
+                tracker.checklistScrollIndex = 0;
+                needsRedraw = true;
+            } else if (tallyEvt == ButtonHandler::LONG_PRESS) {
+                tracker.startStressBuster();
+                HapticManager::pulseStressBusterInhale();
+                triggerStatusLedFlash(150);
+                needsRedraw = true;
+            }
+        } else if (tracker.state == STATE_VIEW_CHECKLIST) {
+            // Tally Button while inside Checklist: Return to previous state
+            if (tallyEvt == ButtonHandler::CLICK) {
+                triggerStatusLedFlash(150);
+                HapticManager::pulseTap();
+                tracker.state = (previousStateBeforeGlance != STATE_VIEW_CHECKLIST) ? previousStateBeforeGlance : STATE_SELECT_CLIENT;
+                if (tracker.state == STATE_SELECT_CLIENT) tracker.menuIndex = tracker.activeClientIndex;
                 needsRedraw = true;
             } else if (tallyEvt == ButtonHandler::LONG_PRESS) {
                 tracker.startStressBuster();
