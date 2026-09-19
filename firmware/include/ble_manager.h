@@ -370,6 +370,11 @@ inline void CommandCallbacks::onWrite(BLECharacteristic* pCharacteristic) {
     String rxValue = pCharacteristic->getValue().c_str();
     if (rxValue.length() == 0) return;
 
+    if (rxValue.length() > 512) {
+        Serial.println("[BLE SEC] Payload rejected: Exceeds maximum limit!");
+        return;
+    }
+
     Serial.printf("[BLE CMD] Received: %s\n", rxValue.c_str());
 
     JsonDocument doc;
