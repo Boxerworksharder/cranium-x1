@@ -106,10 +106,16 @@ class BleService {
       await stopScan();
       debugPrint('[BLE] Connecting to ${device.platformName} (${device.remoteId})...');
 
-      await device.connect(
-        license: License.nonprofit,
-        timeout: const Duration(seconds: 8),
-      );
+      try {
+        await device.connect(
+          license: License.nonprofit,
+          timeout: const Duration(seconds: 8),
+        );
+      } catch (e) {
+        debugPrint('[BLE] Exception during device.connect: $e');
+        await device.disconnect();
+        rethrow;
+      }
 
       try {
         await device.requestMtu(512);
@@ -153,6 +159,13 @@ class BleService {
           }
         }
       }
+
+      debugPrint('[BLE] Connected. Sending time sync...');
+      final now = DateTime.now();
+      // Counteract the ESP32's hardcoded +5:30 (19800) so it matches phone's local time perfectly
+      int espEpoch = (now.millisecondsSinceEpoch ~/ 1000) + now.timeZoneOffset.inSeconds - 19800;
+      await sendCommand({'action': 'sync_time', 'epoch': espEpoch});
+      await Future.delayed(const Duration(milliseconds: 300));
 
       _connectionStateController.add(true);
       return true;

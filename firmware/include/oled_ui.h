@@ -669,6 +669,124 @@ inline void renderTaskListScreen() {
     u8g2.sendBuffer();
 }
 
+inline void renderChecklistScreen() {
+    u8g2.clearBuffer();
+
+    int totalItems = tracker.checklist.size();
+    if (totalItems == 0) {
+        u8g2.setFont(u8g2_font_helvB08_tf);
+        u8g2.drawStr(10, 24, "NO CHECKLIST YET");
+        u8g2.setFont(u8g2_font_5x8_tf);
+        u8g2.drawStr(8, 38, "Add via Phone or PC");
+        u8g2.drawHLine(0, 52, 128);
+        u8g2.setFont(u8g2_font_4x6_tf);
+        u8g2.drawStr(12, 61, "CLICK KNOB / G20 TO RETURN");
+        u8g2.sendBuffer();
+        return;
+    }
+
+    int totalRows = totalItems + 1; // +1 for RESET button
+    if (tracker.checklistScrollIndex >= totalRows) tracker.checklistScrollIndex = totalRows - 1;
+    if (tracker.checklistScrollIndex < 0) tracker.checklistScrollIndex = 0;
+    int cur = tracker.checklistScrollIndex;
+
+    // Header bar
+    u8g2.setFont(u8g2_font_helvB08_tf);
+    u8g2.drawStr(2, 8, "CHECKLIST");
+
+    int doneCount = 0;
+    for (const auto& c : tracker.checklist) {
+        if (c.done) doneCount++;
+    }
+    char headBuf[20];
+    snprintf(headBuf, sizeof(headBuf), "%d/%d", doneCount, totalItems);
+    u8g2.setFont(u8g2_font_5x8_tf);
+    int hW = u8g2.getStrWidth(headBuf);
+    u8g2.drawStr(126 - hW, 8, headBuf);
+    u8g2.drawHLine(0, 10, 128);
+
+    // Visible 4-task window
+    int startIdx = cur - 1;
+    if (startIdx < 0) startIdx = 0;
+    if (startIdx + 3 >= totalRows && totalRows >= 4) startIdx = totalRows - 4;
+    if (cur >= startIdx + 4) startIdx = cur - 3;
+
+    int y = 22;
+    for (int i = startIdx; i < startIdx + 4 && i < totalRows; i++) {
+        bool isSel = (i == cur);
+
+        if (i == totalItems) {
+            // Reset Button
+            String tName = ">> RESET LIST <<";
+            if (isSel) {
+                u8g2.drawRBox(0, y - 9, 122, 12, 2);
+                u8g2.setDrawColor(0);
+                u8g2.setFont(u8g2_font_helvB08_tf);
+                int txtW = u8g2.getStrWidth(tName.c_str());
+                u8g2.drawStr((122 - txtW) / 2, y, tName.c_str());
+                u8g2.setDrawColor(1);
+            } else {
+                u8g2.setFont(u8g2_font_6x10_tf);
+                int txtW = u8g2.getStrWidth(tName.c_str());
+                u8g2.drawStr((122 - txtW) / 2, y, tName.c_str());
+            }
+        } else {
+            const ChecklistItem& item = tracker.checklist[i];
+            String tName = fitStringToWidth(item.text, 100);
+
+            if (isSel) {
+                u8g2.drawRBox(0, y - 9, 122, 12, 2);
+                u8g2.setDrawColor(0);
+
+                // Checkbox
+                u8g2.drawFrame(3, y - 8, 8, 8);
+                if (item.done) {
+                    u8g2.drawBox(5, y - 6, 4, 4);
+                }
+
+                // Text
+                u8g2.setFont(u8g2_font_helvB08_tf);
+                u8g2.drawStr(15, y, tName.c_str());
+
+                // Strikethrough if done
+                if (item.done) {
+                    int txtW = u8g2.getStrWidth(tName.c_str());
+                    u8g2.drawHLine(15, y - 4, txtW);
+                }
+
+                u8g2.setDrawColor(1);
+            } else {
+                // Checkbox
+                u8g2.drawFrame(3, y - 8, 8, 8);
+                if (item.done) {
+                    u8g2.drawBox(5, y - 6, 4, 4);
+                }
+
+                // Text
+                u8g2.setFont(u8g2_font_6x10_tf);
+                u8g2.drawStr(15, y, tName.c_str());
+
+                // Strikethrough if done
+                if (item.done) {
+                    int txtW = u8g2.getStrWidth(tName.c_str());
+                    u8g2.drawHLine(15, y - 4, txtW);
+                }
+            }
+        }
+        y += 13;
+    }
+
+    // Scrollbar indicator
+    if (totalRows > 4) {
+        int trackH = 50;
+        int barH = max(4, trackH / totalRows);
+        int barY = 13 + (cur * (trackH - barH)) / (totalRows - 1);
+        u8g2.drawBox(125, barY, 2, barH);
+    }
+
+    u8g2.sendBuffer();
+}
+
 inline void renderRemindersScreen() {
     u8g2.clearBuffer();
 

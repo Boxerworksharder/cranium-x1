@@ -1,6 +1,7 @@
 import 'client_section.dart';
 import 'task_item.dart';
 import 'reminder_item.dart';
+import 'checklist_item.dart';
 
 enum TrackerState {
   idle,
@@ -72,6 +73,7 @@ class DeviceStatus {
   final List<ClientSection> clients;
   final List<TaskItem> tasks;
   final List<ReminderItem> reminders;
+  final List<ChecklistItem> checklist;
 
   const DeviceStatus({
     this.state = TrackerState.idle,
@@ -92,6 +94,7 @@ class DeviceStatus {
     this.clients = defaultClients,
     this.tasks = const [],
     this.reminders = const [],
+    this.checklist = const [],
   });
 
   DeviceStatus copyWith({
@@ -113,6 +116,7 @@ class DeviceStatus {
     List<ClientSection>? clients,
     List<TaskItem>? tasks,
     List<ReminderItem>? reminders,
+    List<ChecklistItem>? checklist,
   }) {
     return DeviceStatus(
       state: state ?? this.state,
@@ -134,6 +138,7 @@ class DeviceStatus {
       clients: clients ?? this.clients,
       tasks: tasks ?? this.tasks,
       reminders: reminders ?? this.reminders,
+      checklist: checklist ?? this.checklist,
     );
   }
 
@@ -141,6 +146,7 @@ class DeviceStatus {
     var rawClients = json['clients'] as List<dynamic>? ?? [];
     var rawTasks = json['tasks'] as List<dynamic>? ?? [];
     var rawReminders = json['reminders'] as List<dynamic>? ?? [];
+    var rawChecklist = json['checklist'] as List<dynamic>? ?? [];
 
     final parsedClients = rawClients
         .map((c) => ClientSection.fromJson(c as Map<String, dynamic>))
@@ -166,6 +172,18 @@ class DeviceStatus {
         0;
     final defaultPurity = (dw + waste > 0) ? ((dw * 100) / (dw + waste)).round() : 100;
     final purity = (json['focusPurityPct'] as num?)?.toInt() ?? defaultPurity;
+
+    final parsedTasks = rawTasks
+        .map((t) => TaskItem.fromJson(t as Map<String, dynamic>))
+        .toList();
+
+    final parsedReminders = rawReminders
+        .map((r) => ReminderItem.fromJson(r as Map<String, dynamic>))
+        .toList();
+
+    final parsedChecklist = rawChecklist
+        .map((c) => ChecklistItem.fromJson(c as Map<String, dynamic>))
+        .toList();
 
     return DeviceStatus(
       state: TrackerState.fromString(json['state'] as String? ?? 'IDLE'),
@@ -195,12 +213,9 @@ class DeviceStatus {
           (json['isAwayMode'] as bool?) ??
           false,
       clients: effectiveClients,
-      tasks: rawTasks
-          .map((t) => TaskItem.fromJson(t as Map<String, dynamic>))
-          .toList(),
-      reminders: rawReminders
-          .map((r) => ReminderItem.fromJson(r as Map<String, dynamic>))
-          .toList(),
+      tasks: parsedTasks,
+      reminders: parsedReminders,
+      checklist: parsedChecklist,
     );
   }
 
@@ -226,6 +241,7 @@ class DeviceStatus {
       'clients': clients.map((c) => c.toJson()).toList(),
       'tasks': tasks.map((t) => t.toJson()).toList(),
       'reminders': reminders.map((r) => r.toJson()).toList(),
+      'checklist': checklist.map((c) => c.toJson()).toList(),
     };
   }
 

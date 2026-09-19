@@ -115,6 +115,14 @@ public:
             rObj["created"] = r.createdAt;
         }
 
+        JsonArray checklistArr = doc["checklist"].to<JsonArray>();
+        for (const auto& c : mgr.checklist) {
+            JsonObject cObj = checklistArr.add<JsonObject>();
+            cObj["id"] = c.id;
+            cObj["text"] = c.text;
+            cObj["done"] = c.done;
+        }
+
         File tmpFile = LittleFS.open("/tracker_data.tmp", "w");
         if (!tmpFile) {
             Serial.println("[STORAGE] Error: Cannot open /tracker_data.tmp for writing.");
@@ -250,6 +258,19 @@ private:
             mgr.reminders.push_back({ 3, "Plan tomorrow's priorities", getSystemTimestamp() });
             mgr.reminders.push_back({ 4, "Posture & hourly stretch", getSystemTimestamp() });
         }
+
+        mgr.checklist.clear();
+        if (doc["checklist"].is<JsonArray>()) {
+            JsonArray checklistArr = doc["checklist"].as<JsonArray>();
+            for (JsonObject c : checklistArr) {
+                ChecklistItem item;
+                item.id = c["id"] | (int)(mgr.checklist.size() + 1);
+                item.text = c["text"] | "Checklist Item";
+                item.done = c["done"] | false;
+                mgr.checklist.push_back(item);
+            }
+        }
+
 
         if (mgr.clients.empty()) {
             mgr.initDefaults();

@@ -6,6 +6,7 @@ class AppConstants {
   // API Endpoints
   static const String epStatus = '/api/status';
   static const String epTasks = '/api/tasks';
+  static const String epChecklist = '/api/checklist';
   static const String epTaskAdd = '/api/tasks/add';
   static const String epTaskToggle = '/api/tasks/toggle';
   static const String epTaskDelete = '/api/tasks/delete';

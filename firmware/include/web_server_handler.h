@@ -183,6 +183,7 @@ private:
         registerOptions("/api/tasks/toggle");
         registerOptions("/api/tasks/delete");
         registerOptions("/api/tasks/update");
+        registerOptions("/api/checklist");
         registerOptions("/api/reminders");
         registerOptions("/api/reminders/add");
         registerOptions("/api/reminders/delete");
@@ -302,6 +303,14 @@ private:
                     rObj["created"] = r.createdAt;
                 }
 
+                JsonArray checklistArr = doc["checklist"].to<JsonArray>();
+                for (const auto& c : tracker.checklist) {
+                    JsonObject cObj = checklistArr.add<JsonObject>();
+                    cObj["id"] = c.id;
+                    cObj["text"] = c.text;
+                    cObj["done"] = c.done;
+                }
+
                 serializeJson(doc, res);
             }
             sendChunked(200, "application/json", res);
@@ -358,11 +367,15 @@ private:
                 return;
             }
             JsonDocument doc;
-            deserializeJson(doc, server.arg("plain"));
+            DeserializationError err = deserializeJson(doc, server.arg("plain"));
+            if (err) {
+                server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+                return;
+            }
             unsigned long newGoal = doc["goal"] | 0;
             if (newGoal >= 1800 && newGoal <= 86400) { // 30min to 24h
                 tracker.globalDeepWorkGoalSeconds = newGoal;
-                StorageManager::saveTrackerData(tracker);
+                tracker.markDirty();
                 needsRedraw = true;
                 char resp[64];
                 snprintf(resp, sizeof(resp), "{\"status\":\"goal_updated\",\"goal\":%lu}", newGoal);
@@ -430,16 +443,25 @@ private:
                 String customTimestamp = doc["timestamp"] | "";
                 String customDate = doc["date"] | "";
                 tracker.stopAndSave(customTimestamp, customDate);
-                StorageManager::saveTrackerData(tracker);
+                tracker.markDirty();
                 HapticManager::pulseStop();
             } else if (act == "rep_plus") {
                 tracker.incrementTally();
-                StorageManager::saveTrackerData(tracker);
+                tracker.markDirty();
                 HapticManager::pulseTally();
             } else if (act == "rep_minus") {
                 tracker.decrementTally();
-                StorageManager::saveTrackerData(tracker);
+                tracker.markDirty();
                 HapticManager::pulseTallyMinus();
+            } else if (act == "sync_time") {
+                time_t epoch = doc["epoch"] | 0;
+                int tz_offset = doc["tz_offset"] | 19800;
+                if (epoch > 1700000000) {
+                    configTime(tz_offset, 0, "pool.ntp.org", "time.nist.gov");
+                    struct timeval tv = { .tv_sec = epoch, .tv_usec = 0 };
+                    settimeofday(&tv, nullptr);
+                    Serial.printf("[RTC] Synced real-world time from phone (WiFi): %ld (TZ: %d)\n", (long)epoch, tz_offset);
+                }
             } else if (act == "select" || act == "select_client") {
                 int targetId = doc["id"] | -1;
                 int idx = doc["index"] | -1;
@@ -459,7 +481,7 @@ private:
                 }
             } else if (act == "reset_all") {
                 tracker.resetAllData();
-                StorageManager::saveTrackerData(tracker);
+                tracker.markDirty();
                 HapticManager::pulseStop();
                 needsRedraw = true;
             } else if (act == "set_brightness" || act == "brightness") {
@@ -467,7 +489,7 @@ private:
                 if (level >= 10 && level <= 255) {
                     tracker.setBrightness((uint8_t)level);
                     u8g2.setContrast(tracker.activeBrightness);
-                    StorageManager::saveTrackerData(tracker);
+                    tracker.markDirty();
                     HapticManager::pulseTap();
                 }
             } else if (act == "stress_buster") {
@@ -484,7 +506,7 @@ private:
                 {
                     TrackerLock lock;
                     newId = tracker.addClient(name);
-                    StorageManager::saveTrackerData(tracker);
+                    tracker.markDirty();
                     needsRedraw = true;
                 }
                 HapticManager::pulseTap();
@@ -499,7 +521,7 @@ private:
                     TrackerLock lock;
                     ok = tracker.removeClient(targetId);
                     if (ok) {
-                        StorageManager::saveTrackerData(tracker);
+                        tracker.markDirty();
                         needsRedraw = true;
                     }
                 }
@@ -583,7 +605,7 @@ private:
                 TrackerLock lock;
                 tracker.setBrightness((uint8_t)level);
                 u8g2.setContrast(tracker.activeBrightness);
-                StorageManager::saveTrackerData(tracker);
+                tracker.markDirty();
                 HapticManager::pulseTap();
                 needsRedraw = true;
             }
@@ -629,7 +651,7 @@ private:
                 if (!doc["mode"].isNull()) {
                     tracker.wellnessMode = doc["mode"].as<uint8_t>() % 3;
                 }
-                StorageManager::saveTrackerData(tracker);
+                tracker.markDirty();
                 HapticManager::pulseTap();
                 needsRedraw = true;
             }
@@ -646,7 +668,11 @@ private:
             uint8_t kind = 0;
             if (server.hasArg("plain")) {
                 JsonDocument doc;
-                deserializeJson(doc, server.arg("plain"));
+            DeserializationError err = deserializeJson(doc, server.arg("plain"));
+            if (err) {
+                server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+                return;
+            }
                 if (!doc["kind"].isNull()) {
                     kind = doc["kind"].as<uint8_t>() % 2;
                 }
@@ -677,7 +703,7 @@ private:
                 DeserializationError err = deserializeJson(doc, server.arg("plain"));
                 if (!err && !doc["enabled"].isNull()) {
                     PowerManager::setEnabled(doc["enabled"].as<bool>());
-                    StorageManager::saveTrackerData(tracker);
+                    tracker.markDirty();
                     HapticManager::pulseTap();
                 }
             }
@@ -691,7 +717,7 @@ private:
             sendCORS();
             TrackerLock lock;
             tracker.resetAllData();
-            StorageManager::saveTrackerData(tracker);
+            tracker.markDirty();
             HapticManager::pulseStop();
             needsRedraw = true;
             server.send(200, "application/json", "{\"status\":\"reset_complete\"}");
@@ -705,12 +731,16 @@ private:
                 return;
             }
             JsonDocument doc;
-            deserializeJson(doc, server.arg("plain"));
+            DeserializationError err = deserializeJson(doc, server.arg("plain"));
+            if (err) {
+                server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+                return;
+            }
             String name = doc["name"] | "";
             bool isNegative = doc["isNegative"] | false;
             if (name.length() > 0) {
                 int newId = tracker.addClient(name, isNegative);
-                StorageManager::saveTrackerData(tracker);
+                tracker.markDirty();
                 needsRedraw = true;
                 char buf[96];
                 snprintf(buf, sizeof(buf), "{\"status\":\"created\",\"id\":%d}", newId);
@@ -731,7 +761,11 @@ private:
                 return;
             }
             JsonDocument doc;
-            deserializeJson(doc, server.arg("plain"));
+            DeserializationError err = deserializeJson(doc, server.arg("plain"));
+            if (err) {
+                server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+                return;
+            }
             int id = doc["id"] | -1;
             String name = doc["name"] | "";
             int reps = doc["reps"] | -1;
@@ -742,7 +776,7 @@ private:
             }
 
             if (id >= 0 && tracker.updateClient(id, name, reps, totalSecs, isNegative)) {
-                StorageManager::saveTrackerData(tracker);
+                tracker.markDirty();
                 needsRedraw = true;
                 server.send(200, "application/json", "{\"status\":\"updated\"}");
             } else {
@@ -758,10 +792,14 @@ private:
                 return;
             }
             JsonDocument doc;
-            deserializeJson(doc, server.arg("plain"));
+            DeserializationError err = deserializeJson(doc, server.arg("plain"));
+            if (err) {
+                server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+                return;
+            }
             int id = doc["id"] | -1;
             if (id >= 0 && tracker.removeClient(id)) {
-                StorageManager::saveTrackerData(tracker);
+                tracker.markDirty();
                 needsRedraw = true;
                 server.send(200, "application/json", "{\"status\":\"deleted\"}");
             } else {
@@ -780,7 +818,11 @@ private:
                 return;
             }
             JsonDocument doc;
-            deserializeJson(doc, server.arg("plain"));
+            DeserializationError err = deserializeJson(doc, server.arg("plain"));
+            if (err) {
+                server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+                return;
+            }
             int id = doc["id"] | -1;
             String timestamp = doc["timestamp"] | getSystemTimestamp();
             String date = doc["date"] | getSystemDate();
@@ -788,7 +830,7 @@ private:
             int reps = doc["reps"] | 0;
 
             if (id >= 0 && tracker.addHistoryRecord(id, timestamp, date, secs, reps)) {
-                StorageManager::saveTrackerData(tracker);
+                tracker.markDirty();
                 server.send(200, "application/json", "{\"status\":\"history_added\"}");
             } else {
                 server.send(400, "application/json", "{\"error\":\"History add failed\"}");
@@ -803,12 +845,16 @@ private:
                 return;
             }
             JsonDocument doc;
-            deserializeJson(doc, server.arg("plain"));
+            DeserializationError err = deserializeJson(doc, server.arg("plain"));
+            if (err) {
+                server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+                return;
+            }
             int id = doc["id"] | -1;
             int idx = doc["index"] | -1;
 
             if (id >= 0 && idx >= 0 && tracker.deleteHistoryRecord(id, idx)) {
-                StorageManager::saveTrackerData(tracker);
+                tracker.markDirty();
                 server.send(200, "application/json", "{\"status\":\"history_deleted\"}");
             } else {
                 server.send(400, "application/json", "{\"error\":\"History delete failed\"}");
@@ -844,14 +890,18 @@ private:
                 return;
             }
             JsonDocument doc;
-            deserializeJson(doc, server.arg("plain"));
+            DeserializationError err = deserializeJson(doc, server.arg("plain"));
+            if (err) {
+                server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+                return;
+            }
             String text = doc["text"] | "";
             int stars = doc["stars"] | 1;
             if (stars < 1) stars = 1;
             if (stars > 3) stars = 3;
             if (text.length() > 0) {
                 int id = tracker.addTask(text, stars);
-                StorageManager::saveTrackerData(tracker);
+                tracker.markDirty();
                 HapticManager::pulseTap();
                 needsRedraw = true;
                 char resp[64];
@@ -870,10 +920,14 @@ private:
                 return;
             }
             JsonDocument doc;
-            deserializeJson(doc, server.arg("plain"));
+            DeserializationError err = deserializeJson(doc, server.arg("plain"));
+            if (err) {
+                server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+                return;
+            }
             int id = doc["id"] | -1;
             if (id >= 0 && tracker.toggleTask(id)) {
-                StorageManager::saveTrackerData(tracker);
+                tracker.markDirty();
                 HapticManager::pulseTally();
                 needsRedraw = true;
                 server.send(200, "application/json", "{\"status\":\"toggled\"}");
@@ -890,10 +944,14 @@ private:
                 return;
             }
             JsonDocument doc;
-            deserializeJson(doc, server.arg("plain"));
+            DeserializationError err = deserializeJson(doc, server.arg("plain"));
+            if (err) {
+                server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+                return;
+            }
             int id = doc["id"] | -1;
             if (id >= 0 && tracker.deleteTask(id)) {
-                StorageManager::saveTrackerData(tracker);
+                tracker.markDirty();
                 needsRedraw = true;
                 server.send(200, "application/json", "{\"status\":\"deleted\"}");
             } else {
@@ -909,17 +967,54 @@ private:
                 return;
             }
             JsonDocument doc;
-            deserializeJson(doc, server.arg("plain"));
+            DeserializationError err = deserializeJson(doc, server.arg("plain"));
+            if (err) {
+                server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+                return;
+            }
             int id = doc["id"] | -1;
             String text = doc["text"] | "";
             int stars = doc["stars"] | -1;
             int done = !doc["done"].isNull() ? (doc["done"].as<bool>() ? 1 : 0) : -1;
             if (id >= 0 && tracker.updateTask(id, text, stars, done)) {
-                StorageManager::saveTrackerData(tracker);
+                tracker.markDirty();
                 needsRedraw = true;
                 server.send(200, "application/json", "{\"status\":\"updated\"}");
             } else {
                 server.send(400, "application/json", "{\"error\":\"Update failed\"}");
+            }
+        });
+
+        // --- CHECKLIST REST API ---
+        server.on("/api/checklist", HTTP_POST, [this]() {
+            sendCORS();
+            TrackerLock lock;
+            if (!server.hasArg("plain")) {
+                server.send(400, "application/json", "{\"error\":\"Missing body\"}");
+                return;
+            }
+            JsonDocument doc;
+            DeserializationError error = deserializeJson(doc, server.arg("plain"));
+            if (error) {
+                server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+                return;
+            }
+            if (doc.is<JsonArray>()) {
+                tracker.checklist.clear();
+                JsonArray arr = doc.as<JsonArray>();
+                for (JsonObject c : arr) {
+                    ChecklistItem item;
+                    item.id = c["id"] | (int)(tracker.checklist.size() + 1);
+                    item.text = c["text"] | "Item";
+                    item.done = c["done"] | false;
+                    tracker.checklist.push_back(item);
+                }
+                tracker.checklistScrollIndex = 0;
+                tracker.markDirty();
+                needsRedraw = true;
+                server.send(200, "application/json", "{\"status\":\"checklist_updated\"}");
+            } else {
+                server.send(400, "application/json", "{\"error\":\"Expected array\"}");
             }
         });
 
@@ -950,11 +1045,15 @@ private:
                 return;
             }
             JsonDocument doc;
-            deserializeJson(doc, server.arg("plain"));
+            DeserializationError err = deserializeJson(doc, server.arg("plain"));
+            if (err) {
+                server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+                return;
+            }
             String text = doc["text"] | "";
             if (text.length() > 0) {
                 int id = tracker.addReminder(text);
-                StorageManager::saveTrackerData(tracker);
+                tracker.markDirty();
                 HapticManager::pulseTap();
                 needsRedraw = true;
                 char resp[64];
@@ -973,10 +1072,14 @@ private:
                 return;
             }
             JsonDocument doc;
-            deserializeJson(doc, server.arg("plain"));
+            DeserializationError err = deserializeJson(doc, server.arg("plain"));
+            if (err) {
+                server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+                return;
+            }
             int id = doc["id"] | -1;
             if (id >= 0 && tracker.deleteReminder(id)) {
-                StorageManager::saveTrackerData(tracker);
+                tracker.markDirty();
                 needsRedraw = true;
                 server.send(200, "application/json", "{\"status\":\"deleted\"}");
             } else {
@@ -992,11 +1095,15 @@ private:
                 return;
             }
             JsonDocument doc;
-            deserializeJson(doc, server.arg("plain"));
+            DeserializationError err = deserializeJson(doc, server.arg("plain"));
+            if (err) {
+                server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+                return;
+            }
             int id = doc["id"] | -1;
             String text = doc["text"] | "";
             if (id >= 0 && tracker.updateReminder(id, text)) {
-                StorageManager::saveTrackerData(tracker);
+                tracker.markDirty();
                 needsRedraw = true;
                 server.send(200, "application/json", "{\"status\":\"updated\"}");
             } else {

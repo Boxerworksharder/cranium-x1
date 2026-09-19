@@ -37,20 +37,22 @@ private:
     int pin;
     unsigned long debounceMs;
     unsigned long longPressMs;
+    unsigned long extraLongPressMs;
 
     int lastRawState;
     int stableState;
     unsigned long lastDebounceTime;
     unsigned long pressStartTime;
     bool longPressTriggered;
+    bool extraLongPressTriggered;
 
 public:
-    enum Event { NONE, CLICK, LONG_PRESS };
+    enum Event { NONE, CLICK, LONG_PRESS, EXTRA_LONG_PRESS };
 
-    ButtonHandler(int p, unsigned long debounce = 35, unsigned long longPress = 800)
-        : pin(p), debounceMs(debounce), longPressMs(longPress),
+    ButtonHandler(int p, unsigned long debounce = 35, unsigned long longPress = 800, unsigned long extraLongPress = 3000)
+        : pin(p), debounceMs(debounce), longPressMs(longPress), extraLongPressMs(extraLongPress),
           lastRawState(HIGH), stableState(HIGH),
-          lastDebounceTime(0), pressStartTime(0), longPressTriggered(false) {}
+          lastDebounceTime(0), pressStartTime(0), longPressTriggered(false), extraLongPressTriggered(false) {}
 
     void init() {
         pinMode(pin, INPUT_PULLUP);
@@ -74,6 +76,7 @@ public:
                 if (stableState == LOW) {
                     pressStartTime = now;
                     longPressTriggered = false;
+                    extraLongPressTriggered = false;
                 } else {
                     if (!longPressTriggered && (now - pressStartTime < longPressMs)) {
                         evt = CLICK;
@@ -82,8 +85,11 @@ public:
             }
         }
 
-        if (stableState == LOW && !longPressTriggered) {
-            if ((now - pressStartTime) >= longPressMs) {
+        if (stableState == LOW) {
+            if (!extraLongPressTriggered && (now - pressStartTime) >= extraLongPressMs) {
+                extraLongPressTriggered = true;
+                evt = EXTRA_LONG_PRESS;
+            } else if (!longPressTriggered && (now - pressStartTime) >= longPressMs) {
                 longPressTriggered = true;
                 evt = LONG_PRESS;
             }
@@ -234,6 +240,14 @@ void handleEncoderInput() {
                 }
             }
             needsRedraw = true;
+        } else if (tracker.state == STATE_VIEW_CHECKLIST) {
+            int total = tracker.checklist.size() + 1; // +1 for reset button
+            if (diff > 0) {
+                tracker.checklistScrollIndex = (tracker.checklistScrollIndex + 1) % total;
+            } else if (diff < 0) {
+                tracker.checklistScrollIndex = (tracker.checklistScrollIndex - 1 + total) % total;
+            }
+            needsRedraw = true;
         } else if (tracker.state == STATE_VIEW_REMINDERS) {
             if (!tracker.reminders.empty()) {
                 if (diff > 0) {
@@ -349,6 +363,20 @@ void handleButtons() {
                 }
             }
             needsRedraw = true;
+        } else if (sessEvt == ButtonHandler::EXTRA_LONG_PRESS) {
+            triggerStatusLedFlash(300);
+            HapticManager::pulseTap(); // You might want a different pattern, but tap is fine
+            if (tracker.state != STATE_VIEW_CHECKLIST) {
+                previousStateBeforeGlance = tracker.state;
+                tracker.state = STATE_VIEW_CHECKLIST;
+                tracker.checklistScrollIndex = 0;
+            } else {
+                tracker.state = (previousStateBeforeGlance != STATE_VIEW_CHECKLIST) ? previousStateBeforeGlance : STATE_SELECT_CLIENT;
+                if (tracker.state == STATE_SELECT_CLIENT) {
+                    tracker.menuIndex = tracker.activeClientIndex;
+                }
+            }
+            needsRedraw = true;
         }
 
         // 2. Knob Click: Select / Toggle Pause / Return to Menu
@@ -418,6 +446,18 @@ void handleButtons() {
                     tracker.markDirty();
                     bleManager.requestImmediateBroadcast();
                 }
+            } else if (tracker.state == STATE_VIEW_CHECKLIST) {
+                if (tracker.checklistScrollIndex == tracker.checklist.size()) {
+                    tracker.resetChecklist();
+                    HapticManager::pulseStop();
+                    triggerStatusLedFlash(400);
+                } else if (!tracker.checklist.empty()) {
+                    tracker.toggleChecklistItem(tracker.checklist[tracker.checklistScrollIndex].id);
+                    HapticManager::pulseTally();
+                    triggerStatusLedFlash(120);
+                }
+                tracker.markDirty();
+                bleManager.requestImmediateBroadcast();
             } else if (tracker.state == STATE_VIEW_REMINDERS) {
                 HapticManager::pulseTap();
                 tracker.state = (previousStateBeforeGlance != STATE_VIEW_REMINDERS) ? previousStateBeforeGlance : STATE_SELECT_CLIENT;
@@ -840,6 +880,8 @@ void loop() {
             OledUI::renderStressBusterScreen(millis() - tracker.stressBusterStartMillis);
         } else if (tracker.state == STATE_VIEW_TASKS) {
             OledUI::renderTaskListScreen();
+        } else if (tracker.state == STATE_VIEW_CHECKLIST) {
+            OledUI::renderChecklistScreen();
         } else if (tracker.state == STATE_VIEW_REMINDERS) {
             OledUI::renderRemindersScreen();
         } else if (tracker.state == STATE_SET_BRIGHTNESS) {

@@ -481,10 +481,12 @@ inline void CommandCallbacks::onWrite(BLECharacteristic* pCharacteristic) {
             needsRedraw = true;
         } else if (strcmp(action, "sync_time") == 0) {
             time_t epoch = doc["epoch"] | 0;
+            int tz_offset = doc["tz_offset"] | 19800;
             if (epoch > 1700000000) {
+                configTime(tz_offset, 0, "pool.ntp.org", "time.nist.gov");
                 struct timeval tv = { .tv_sec = epoch, .tv_usec = 0 };
                 settimeofday(&tv, nullptr);
-                Serial.printf("[RTC] Synced real-world time from phone: %ld\n", (long)epoch);
+                Serial.printf("[RTC] Synced real-world time from phone: %ld (TZ: %d)\n", (long)epoch, tz_offset);
                 HapticManager::pulseTap();
             }
         } else if (strcmp(action, "powerbank") == 0) {

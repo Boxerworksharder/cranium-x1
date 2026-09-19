@@ -28,6 +28,7 @@ enum TrackerState {
     STATE_VIEW_LOGS,      // Browse timestamped session logs on OLED display
     STATE_SET_BRIGHTNESS, // OLED display brightness adjustment screen
     STATE_VIEW_TASKS,     // Priority Task List with stars (accessed via GPIO 20 click)
+    STATE_VIEW_CHECKLIST, // Reusable Checklist (accessed via GPIO 20 extra long press)
     STATE_VIEW_REMINDERS, // Daily Reminders & Notes without ticks (accessed via GPIO 20 hold)
     STATE_STRESS_BUSTER,  // 10-Second Stress Buster Breathing & Relaxation Animation
     STATE_CONFIG_WELLNESS // Hydration & Stand/Stretch Wellness configuration screen
@@ -57,6 +58,12 @@ struct ReminderItem {
     int id;
     String text;
     String createdAt;
+};
+
+struct ChecklistItem {
+    int id;
+    String text;
+    bool done;
 };
 
 struct TaskItem {
@@ -94,12 +101,14 @@ public:
     std::vector<ClientInfo> clients;
     std::vector<TaskItem> tasks;
     std::vector<ReminderItem> reminders;
+    std::vector<ChecklistItem> checklist;
     int activeClientIndex = 0;
     int menuIndex = 0;
     int summaryIndex = 0;
     int logScrollIndex = 0;
     int taskScrollIndex = 0;
     int reminderScrollIndex = 0;
+    int checklistScrollIndex = 0;
     
     unsigned long sessionStartMillis = 0;
     unsigned long currentSessionSeconds = 0;
@@ -235,6 +244,25 @@ public:
             }
         }
         return false;
+    }
+
+    bool toggleChecklistItem(int id) {
+        recordUserActivity();
+        for (auto& item : checklist) {
+            if (item.id == id) {
+                item.done = !item.done;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    void resetChecklist() {
+        recordUserActivity();
+        for (auto& item : checklist) {
+            item.done = false;
+        }
+        checklistScrollIndex = 0;
     }
 
     bool deleteTask(int id) {
@@ -397,9 +425,11 @@ public:
         logScrollIndex = 0;
         taskScrollIndex = 0;
         reminderScrollIndex = 0;
+        checklistScrollIndex = 0;
 
         tasks.clear();
         reminders.clear();
+        checklist.clear();
 
         currentSessionSeconds = 0;
         currentStreakDays = 0;

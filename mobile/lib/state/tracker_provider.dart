@@ -11,6 +11,7 @@ import '../data/models/device_status.dart';
 import '../data/models/client_section.dart';
 import '../data/models/task_item.dart';
 import '../data/models/reminder_item.dart';
+import '../data/models/checklist_item.dart';
 import '../data/services/esp32_api_service.dart';
 import '../data/services/ble_service.dart';
 
@@ -40,6 +41,7 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
   DeviceStatus _status = const DeviceStatus();
   List<TaskItem> _tasks = [];
   List<ReminderItem> _reminders = [];
+  List<ChecklistItem> _checklist = [];
 
   List<Map<String, dynamic>> _pendingSyncQueue = [];
   bool _pendingResetOnConnect = false;
@@ -113,6 +115,7 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
   DeviceStatus get status => _status;
   List<TaskItem> get tasks => _tasks;
   List<ReminderItem> get reminders => _reminders;
+  List<ChecklistItem> get checklist => _checklist;
   TimerMode get timerMode => _timerMode;
   int get countdownTargetMinutes => _countdownTargetMinutes;
   int get countdownTargetSeconds => _countdownTargetMinutes * 60;
@@ -193,7 +196,7 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
     AppTheme.currentStyle = _themeStyle;
 
     final savedProtocol = prefs.getString('pref_sync_protocol') ?? 'wifi';
-    _protocol = savedProtocol == 'bluetooth' ? SyncProtocol.bluetooth : SyncProtocol.wifi;
+    _protocol = savedProtocol == 'wifi' ? SyncProtocol.wifi : SyncProtocol.bluetooth;
 
     _lastBleDeviceId = prefs.getString('pref_last_ble_device_id');
     _lastBleDeviceName = prefs.getString('pref_last_ble_device_name');
@@ -312,6 +315,7 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
       final data = _status.toJson();
       data['tasks'] = _tasks.map((t) => t.toJson()).toList();
       data['reminders'] = _reminders.map((r) => r.toJson()).toList();
+      data['checklist'] = _checklist.map((c) => c.toJson()).toList();
       await prefs.setString('pref_cached_status', jsonEncode(data));
     } catch (_) {}
   }
@@ -358,20 +362,32 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
       if (_pendingSyncQueue.isNotEmpty) {
         debugPrint('[TrackerProvider] Flushing ${_pendingSyncQueue.length} pending commands to hardware...');
-        while (_pendingSyncQueue.isNotEmpty) {
-          if (!_bleService.isConnected) break;
-          final cmd = _pendingSyncQueue.first;
+        
+        final queueCopy = List<Map<String, dynamic>>.from(_pendingSyncQueue);
+        _pendingSyncQueue.clear();
+        
+        for (int i = 0; i < queueCopy.length; i++) {
+          final cmd = queueCopy[i];
+          if (!_bleService.isConnected) {
+            _pendingSyncQueue.insertAll(0, queueCopy.sublist(i));
+            await _savePendingSyncQueue();
+            break;
+          }
+          
           try {
             final ok = await _bleService.sendCommand(cmd);
             if (ok) {
-              _pendingSyncQueue.removeAt(0);
               await _savePendingSyncQueue();
               await Future.delayed(const Duration(milliseconds: 120));
             } else {
+              _pendingSyncQueue.insertAll(0, queueCopy.sublist(i));
+              await _savePendingSyncQueue();
               break;
             }
           } catch (e) {
             debugPrint('[TrackerProvider] Error flushing cmd $cmd: $e');
+            _pendingSyncQueue.insertAll(0, queueCopy.sublist(i));
+            await _savePendingSyncQueue();
             break;
           }
         }
@@ -605,12 +621,13 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
       }
     }
     if ((newState == TrackerState.tracking || newState == TrackerState.paused) && clientId > 0) {
-      final act = updatedClients.firstWhere((c) => c.id == clientId, orElse: () => updatedClients.first);
-      if (act.isNegative) {
-        computedWaste += finalSessionSecs;
+      if (updatedClients.isNotEmpty) {
+        final act = updatedClients.firstWhere((c) => c.id == clientId, orElse: () => updatedClients.first);
+        if (act.isNegative) {
+          computedWaste += finalSessionSecs;
+        }
       }
     }
-
     final wasteSecs = (data['globalWasteSecondsToday'] as num?)?.toInt() ??
         (data['wasteSecs'] as num?)?.toInt() ??
         (data['totalWasteToday'] as num?)?.toInt() ??
@@ -713,10 +730,12 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
             _status = newStatus.copyWith(sessionSeconds: _status.sessionSeconds);
           } else {
             _status = newStatus;
+      _checklist = newStatus.checklist;
           }
         } else {
           _stopLocalTicker();
           _status = newStatus;
+      _checklist = newStatus.checklist;
         }
 
         _tasks = results[1] as List<TaskItem>;
@@ -751,10 +770,12 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
           _status = newStatus.copyWith(sessionSeconds: _status.sessionSeconds);
         } else {
           _status = newStatus;
+      _checklist = newStatus.checklist;
         }
       } else {
         _stopLocalTicker();
         _status = newStatus;
+      _checklist = newStatus.checklist;
       }
 
       _saveCachedStatus();
@@ -878,16 +899,18 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
     return false;
   }
-
   Future<bool> syncTimeToDevice() async {
-    final nowSeconds = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    debugPrint('[TrackerProvider] Syncing phone RTC time ($nowSeconds) to ESP32...');
+    final now = DateTime.now();
+    final utcEpoch = now.toUtc().millisecondsSinceEpoch ~/ 1000;
+    final tzOffset = now.timeZoneOffset.inSeconds;
+    
     return await _dispatchDeviceCommand(
       bleCommand: {
         'action': 'sync_time',
-        'epoch': nowSeconds,
+        'epoch': utcEpoch,
+        'tz_offset': tzOffset,
       },
-      wifiFallback: () => _apiService.syncTime(nowSeconds),
+      wifiFallback: () => _apiService.syncTime(utcEpoch, tzOffset),
     );
   }
 
@@ -1103,6 +1126,20 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   // --- Section Operations ---
+
+  Future<void> saveChecklist(List<ChecklistItem> newList) async {
+    _checklist = newList;
+    _saveCachedStatus();
+    notifyListeners();
+    await _dispatchDeviceCommand(
+      bleCommand: {
+        'action': 'save_checklist',
+        'items': newList.map((e) => e.toJson()).toList(),
+      },
+      queueIfOffline: true,
+      wifiFallback: () => _apiService.saveChecklist(newList),
+    );
+  }
 
   Future<bool> addSection(String name, {bool isNegative = false}) async {
     final trimmed = name.trim();
@@ -1757,6 +1794,7 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
   @visibleForTesting
   void updateStatusForTesting(DeviceStatus newStatus) {
     _status = newStatus;
+      _checklist = newStatus.checklist;
     _tasks = List.from(newStatus.tasks);
     _reminders = List.from(newStatus.reminders);
     notifyListeners();

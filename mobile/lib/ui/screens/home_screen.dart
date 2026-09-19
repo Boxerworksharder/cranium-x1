@@ -5,6 +5,7 @@ import '../../state/tracker_provider.dart';
 import 'cockpit_screen.dart';
 import 'tasks_screen.dart';
 import 'analytics_screen.dart';
+import 'checklist_screen.dart';
 import 'settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -19,10 +20,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   late final List<Widget> _screens = [
     CockpitScreen(onOpenSettings: () {
-      setState(() => _currentIndex = 3);
+      setState(() => _currentIndex = 4);
     }),
     const AnalyticsScreen(),
     const TasksScreen(),
+    const ChecklistScreen(),
     const SettingsScreen(),
   ];
 
@@ -30,6 +32,7 @@ class _HomeScreenState extends State<HomeScreen> {
     'Cranium',
     'The receipts.',
     'Journal & Directives',
+    'Standard Operating Procedures',
     'System Tools',
   ];
 
@@ -90,7 +93,8 @@ class _HomeScreenState extends State<HomeScreen> {
               _buildNavItem(0, Icons.home_outlined, Icons.home_rounded, 'Home'),
               _buildNavItem(1, Icons.bar_chart_outlined, Icons.bar_chart_rounded, 'Stats'),
               _buildNavItem(2, Icons.edit_note_outlined, Icons.edit_note_rounded, 'Journal', badgeCount: pendingTasksCount),
-              _buildNavItem(3, Icons.tune_outlined, Icons.tune_rounded, 'Tools'),
+              _buildNavItem(3, Icons.checklist_outlined, Icons.checklist_rounded, 'SOPs'),
+              _buildNavItem(4, Icons.tune_outlined, Icons.tune_rounded, 'Tools'),
             ],
           ),
         ),

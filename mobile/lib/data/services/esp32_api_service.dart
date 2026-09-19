@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import '../models/device_status.dart';
 import '../models/task_item.dart';
 import '../models/reminder_item.dart';
+import '../models/checklist_item.dart';
 import '../../core/constants/app_constants.dart';
 
 class Esp32ApiService {
@@ -41,6 +42,21 @@ class Esp32ApiService {
     }
   }
 
+  Future<bool> syncTime(int epoch, int tzOffset) async {
+    try {
+      final res = await _client
+          .post(
+            _uri(AppConstants.epAction),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'action': 'sync_time', 'epoch': epoch, 'tz_offset': tzOffset}),
+          )
+          .timeout(const Duration(seconds: 4));
+      return res.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<DeviceStatus> fetchStatus() async {
     final res = await _client
         .get(_uri(AppConstants.epStatus))
@@ -65,6 +81,18 @@ class Esp32ApiService {
     } else {
       throw Exception('Failed to fetch tasks (HTTP ${res.statusCode})');
     }
+  }
+
+  Future<bool> saveChecklist(List<ChecklistItem> checklist) async {
+    final res = await _client
+        .post(
+          _uri(AppConstants.epChecklist),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode(checklist.map((e) => e.toJson()).toList()),
+        )
+        .timeout(const Duration(seconds: 4));
+
+    return res.statusCode == 200;
   }
 
   Future<int?> addTask(String text, int stars) async {
@@ -448,22 +476,6 @@ class Esp32ApiService {
       return res.statusCode == 200;
     } catch (e) {
       debugPrint('[API] setPowerBankKeepAlive error: $e');
-      return false;
-    }
-  }
-
-  Future<bool> syncTime(int epochSeconds) async {
-    try {
-      final res = await _client
-          .post(
-            _uri('/api/time'),
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({'epoch': epochSeconds}),
-          )
-          .timeout(const Duration(seconds: 4));
-      return res.statusCode == 200;
-    } catch (e) {
-      debugPrint('[API] syncTime error: $e');
       return false;
     }
   }
