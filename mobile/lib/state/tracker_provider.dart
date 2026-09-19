@@ -669,6 +669,15 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
           _reminders = incomingReminders;
         }
       }
+      
+      if (data['checklist'] is List) {
+        final incomingChecklist = (data['checklist'] as List)
+            .map((c) => ChecklistItem.fromJson(c as Map<String, dynamic>))
+            .toList();
+        if (!_pendingSyncQueue.any((c) => c['action'] == 'save_checklist') && !_isFlushingQueue) {
+          _checklist = incomingChecklist;
+        }
+      }
     }
 
     _status = DeviceStatus(

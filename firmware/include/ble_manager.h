@@ -295,6 +295,14 @@ public:
             rObj["created"] = tracker->reminders[i].createdAt;
         }
 
+        JsonArray checklistArr = doc["checklist"].to<JsonArray>();
+        size_t maxChecklist = tracker->checklist.size() > 20 ? 20 : tracker->checklist.size();
+        for (size_t i = 0; i < maxChecklist; i++) {
+            JsonObject cObj = checklistArr.add<JsonObject>();
+            cObj["id"] = tracker->checklist[i].id;
+            cObj["text"] = tracker->checklist[i].text;
+            cObj["done"] = tracker->checklist[i].done;
+        }
         String payload;
         serializeJson(doc, payload);
 
@@ -602,6 +610,21 @@ inline void CommandCallbacks::onWrite(BLECharacteristic* pCharacteristic) {
             tracker->markDirty();
             HapticManager::pulseTap();
             needsRedraw = true;
+        } else if (strcmp(action, "save_checklist") == 0) {
+            if (doc["items"].is<JsonArray>()) {
+                tracker->checklist.clear();
+                JsonArray arr = doc["items"].as<JsonArray>();
+                for (JsonObject c : arr) {
+                    ChecklistItem item;
+                    item.id = c["id"] | (int)(tracker->checklist.size() + 1);
+                    item.text = c["text"] | "Item";
+                    item.done = c["done"] | false;
+                    tracker->checklist.push_back(item);
+                }
+                tracker->checklistScrollIndex = 0;
+                tracker->markDirty();
+                needsRedraw = true;
+            }
         } else if (strcmp(action, "update_reminder") == 0) {
             int id = doc["id"] | -1;
             String text = doc["text"] | "";
