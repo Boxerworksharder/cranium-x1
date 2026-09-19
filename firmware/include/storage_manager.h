@@ -69,6 +69,13 @@ public:
         doc["savedAt"] = getSystemTimestamp();
         doc["currentStreak"] = mgr.currentStreakDays;
         doc["longestStreak"] = mgr.longestStreakDays;
+        
+        // Save current real-world epoch so we can recover it on cold boots without WiFi
+        time_t nowEpoch;
+        time(&nowEpoch);
+        if (nowEpoch > 1700000000) {
+            doc["lastEpoch"] = nowEpoch;
+        }
         doc["lastActiveDate"] = mgr.lastActiveDate;
         doc["wellness_enabled"] = mgr.wellnessEnabled;
         doc["wellness_interval_min"] = mgr.wellnessIntervalMinutes;
@@ -182,6 +189,16 @@ private:
 
         mgr.currentStreakDays = doc["currentStreak"] | 0;
         mgr.longestStreakDays = doc["longestStreak"] | 0;
+
+        // Recover real-world time if WiFi/NTP is unavailable
+        time_t savedEpoch = doc["lastEpoch"] | 0;
+        time_t currentEpoch;
+        time(&currentEpoch);
+        if (savedEpoch > 1700000000 && currentEpoch < 1700000000) {
+            struct timeval tv; tv.tv_sec = savedEpoch; tv.tv_usec = 0;
+            settimeofday(&tv, nullptr);
+            Serial.printf("[STORAGE] Recovered RTC time from last save: %ld\n", (long)savedEpoch);
+        }
         mgr.lastActiveDate = doc["lastActiveDate"] | getSystemDate();
         mgr.wellnessEnabled = !doc["wellness_enabled"].isNull() ? doc["wellness_enabled"].as<bool>() : true;
         mgr.wellnessIntervalMinutes = doc["wellness_interval_min"] | 45;
