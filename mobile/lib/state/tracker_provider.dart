@@ -641,15 +641,7 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
         final incomingTasks = (data['tasks'] as List)
             .map((t) => TaskItem.fromJson(t as Map<String, dynamic>))
             .toList();
-        if (_pendingSyncQueue.any((c) => c['action'].toString().contains('task')) || _isFlushingQueue) {
-          final Map<int, TaskItem> taskMap = {for (final t in incomingTasks) t.id: t};
-          for (final local in _tasks) {
-            if (!taskMap.containsKey(local.id)) {
-              taskMap[local.id] = local;
-            }
-          }
-          _tasks = taskMap.values.toList()..sort((a, b) => a.id.compareTo(b.id));
-        } else {
+        if (!_pendingSyncQueue.any((c) => c['action'].toString().contains('task')) && !_isFlushingQueue) {
           _tasks = incomingTasks;
         }
       }
@@ -657,15 +649,7 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
         final incomingReminders = (data['reminders'] as List)
             .map((r) => ReminderItem.fromJson(r as Map<String, dynamic>))
             .toList();
-        if (_pendingSyncQueue.any((c) => c['action'].toString().contains('reminder')) || _isFlushingQueue) {
-          final Map<int, ReminderItem> remMap = {for (final r in incomingReminders) r.id: r};
-          for (final local in _reminders) {
-            if (!remMap.containsKey(local.id)) {
-              remMap[local.id] = local;
-            }
-          }
-          _reminders = remMap.values.toList()..sort((a, b) => a.id.compareTo(b.id));
-        } else {
+        if (!_pendingSyncQueue.any((c) => c['action'].toString().contains('reminder')) && !_isFlushingQueue) {
           _reminders = incomingReminders;
         }
       }
