@@ -200,7 +200,7 @@ void handleEncoderInput() {
         }
 
         if (tracker.state == STATE_SELECT_CLIENT) {
-            int totalItems = tracker.clients.size() + 8;
+            int totalItems = tracker.clients.size() + 7;
             if (diff > 0) {
                 tracker.menuIndex = (tracker.menuIndex + 1) % totalItems;
             } else if (diff < 0) {
@@ -278,11 +278,11 @@ void handleEncoderInput() {
             needsRedraw = true;
         } else if (tracker.state == STATE_VIEW_SUMMARY) {
             int totalItems = tracker.clients.size();
-            if (diff > 0) {
+            if (totalItems > 0) { if (diff > 0) {
                 tracker.summaryIndex = (tracker.summaryIndex + 1) % totalItems;
             } else if (diff < 0) {
                 tracker.summaryIndex = (tracker.summaryIndex - 1 + totalItems) % totalItems;
-            }
+            } }
             needsRedraw = true;
         } else if (tracker.state == STATE_TRACKING || tracker.state == STATE_PAUSED) {
             if (diff > 0) {
@@ -420,15 +420,6 @@ void handleButtons() {
                     triggerStatusLedFlash(100);
                     tracker.markDirty();
                     bleManager.broadcastStatus();
-                } else if (tracker.menuIndex == totalClients + 7) {
-                    HapticManager::pulseStop();
-                    tracker.resetAllData();
-                    StorageManager::saveTrackerData(tracker);
-                    triggerStatusLedFlash(400);
-                    bleManager.broadcastStatus();
-                    bleManager.requestImmediateBroadcast();
-                    tracker.menuIndex = 0;
-                    needsRedraw = true;
                 } else {
                     tracker.activeClientIndex = tracker.menuIndex;
                     trackingPageView = 0;
@@ -687,6 +678,8 @@ void loop() {
                    tracker.state != STATE_STRESS_BUSTER && 
                    tracker.state != STATE_SET_BRIGHTNESS);
 
+    bool isScreensaverActive = canDim && (millis() - tracker.lastActivityMillis >= SCREENSAVER_TIMEOUT_MS);
+
     if (canDim && !tracker.isDimmed && (millis() - tracker.lastActivityMillis >= IDLE_DIM_TIMEOUT_MS)) {
         // Dim proportionally, but NEVER exceed or increase above activeBrightness
         uint8_t dimmedVal = (tracker.activeBrightness > 30) ? (tracker.activeBrightness / 3) : 10;
@@ -864,13 +857,16 @@ void loop() {
     #endif
 
     // 6. Redraw display
-    if (needsRedraw) {
+    if (needsRedraw || isScreensaverActive) {
         needsRedraw = false;
         TrackerLock lock;
         if (!tracker.isDimmed) {
             u8g2.setContrast(tracker.activeBrightness);
         }
-        if (tracker.isShowingWellnessAlert) {
+        
+        if (isScreensaverActive) {
+            OledUI::MatrixScreensaver::render(millis() - tracker.lastActivityMillis - SCREENSAVER_TIMEOUT_MS);
+        } else if (tracker.isShowingWellnessAlert) {
             OledUI::renderWellnessAlertScreen(tracker.currentWellnessAlertKind, millis() - tracker.wellnessAlertStartMillis);
         } else if (tracker.state == STATE_CONFIG_WELLNESS) {
             OledUI::renderWellnessConfigScreen();

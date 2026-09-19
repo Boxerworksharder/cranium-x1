@@ -5,6 +5,7 @@
 #include "tracker_state.h"
 #include "ble_manager.h"
 #include "power_manager.h"
+#include "rabbit_big_anim.h"
 
 extern U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2;
 extern TrackerManager tracker;
@@ -165,7 +166,7 @@ inline void renderClientSelectScreen() {
     renderGlobalDeepWorkHeader(false);
 
     int totalClients = tracker.clients.size();
-    int totalItems = totalClients + 8;
+    int totalItems = totalClients + 7;
     int selected = tracker.menuIndex;
     if (selected >= totalItems) selected = 0;
 
@@ -324,23 +325,7 @@ inline void renderClientSelectScreen() {
                 int rW = u8g2.getStrWidth(pbBuf);
                 u8g2.drawStr((128 - rW) / 2, y, pbBuf);
             }
-        } else {
-            // [ Hard Reset ]
-            if (i == selected) {
-                u8g2.drawRBox(0, y - 9, 128, 12, 2);
-                u8g2.setDrawColor(0);
-                u8g2.setFont(u8g2_font_helvB08_tf);
-                const char* rstStr = ">> ZERO HARD RESET <<";
-                int rW = u8g2.getStrWidth(rstStr);
-                u8g2.drawStr((128 - rW) / 2, y, rstStr);
-                u8g2.setDrawColor(1);
-            } else {
-                u8g2.setFont(u8g2_font_6x10_tf);
-                const char* rstStr = "[ Hard Reset ]";
-                int rW = u8g2.getStrWidth(rstStr);
-                u8g2.drawStr((128 - rW) / 2, y, rstStr);
-            }
-        }
+        } 
         y += 13;
     }
 
@@ -360,6 +345,132 @@ inline void renderClientSelectScreen() {
     }
 
     u8g2.sendBuffer();
+}
+
+namespace MatrixScreensaver {
+    #define MATRIX_COLS 21
+    int rainY[MATRIX_COLS];
+    int rainSpeed[MATRIX_COLS];
+    int rainLength[MATRIX_COLS];
+    bool initialized = false;
+
+    void init() {
+        if (initialized) return;
+        for (int i = 0; i < MATRIX_COLS; i++) {
+            rainY[i] = random(-64, 0);
+            rainSpeed[i] = random(2, 6);
+            rainLength[i] = random(5, 15);
+        }
+        initialized = true;
+    }
+
+    void drawTypewriter(const char* text, unsigned long phaseElapsed, int speedMs) {
+        int charsToShow = phaseElapsed / speedMs;
+        int len = strlen(text);
+        if (charsToShow > len) charsToShow = len;
+        
+        u8g2.setFont(u8g2_font_6x10_tf);
+        int cursorX = 10;
+        int cursorY = 26;
+        
+        char line1[32] = {0};
+        char line2[32] = {0};
+        int l1 = 0, l2 = 0;
+        bool onLine2 = false;
+        
+        for (int i = 0; i < charsToShow; i++) {
+if (text[i] == '\n') {
+                onLine2 = true;
+                continue;
+            }
+            if (!onLine2 && l1 < 31) {
+                line1[l1++] = text[i];
+            } else if (l2 < 31) {
+                line2[l2++] = text[i];
+            }
+        }
+        
+        if (l1 > 0) u8g2.drawStr(10, 26, line1);
+        if (onLine2 || l2 > 0) {
+            if (l2 > 0) u8g2.drawStr(10, 40, line2);
+            cursorX = 10 + u8g2.getStrWidth(line2);
+            cursorY = 40;
+        } else {
+            cursorX = 10 + u8g2.getStrWidth(line1);
+            cursorY = 26;
+        }
+        
+        bool showCursor = ((millis() / 500) % 2 == 0) && (charsToShow < len || (millis() % 2000 < 1000));
+        if (showCursor) {
+            u8g2.drawStr(cursorX, cursorY, "_");
+        }
+    }
+    
+    void drawRabbit(unsigned long elapsed) {
+        // Run completely across the screen
+        int x = 128 - (elapsed * 192 / 3000); 
+        int frameIdx = (elapsed / 120) % 4;   // 120ms per frame
+        
+        int hopY = 0;
+        if (frameIdx == 1) hopY = -8; 
+        else if (frameIdx == 0) hopY = -2; 
+        else if (frameIdx == 3) hopY = -4; 
+        
+        int y = 24 + hopY;
+        
+        u8g2.setDrawColor(1);
+        
+        // Ground line across the whole screen
+        u8g2.drawLine(0, 56, 128, 56);
+        
+        // Rabbit
+        u8g2.drawXBMP(x, y, RABBIT_BIG_WIDTH, RABBIT_BIG_HEIGHT, rabbit_big_frames[frameIdx]);
+    }
+
+    void render(unsigned long elapsedMs) {
+        u8g2.clearBuffer();
+        
+        if (elapsedMs < 3000) {
+            drawTypewriter("Wake up,\nSandeep...", elapsedMs, 120);
+        } else if (elapsedMs < 4000) {
+            // clear
+        } else if (elapsedMs < 7000) {
+            drawTypewriter("The Matrix\nhas you...", elapsedMs - 4000, 100);
+        } else if (elapsedMs < 8000) {
+            // clear
+        } else if (elapsedMs < 12000) {
+            drawTypewriter("Follow the\nwhite rabbit.", elapsedMs - 8000, 100);
+        } else if (elapsedMs < 15000) {
+            drawRabbit(elapsedMs - 12000);
+        } else if (elapsedMs < 19000) {
+            drawTypewriter("Knock, knock,\nSandeep.", elapsedMs - 15000, 120);
+        } else {
+            // Continuous Digital Rain Phase
+            init();
+            u8g2.setFont(u8g2_font_4x6_tf);
+            for (int i = 0; i < MATRIX_COLS; i++) {
+                int x = i * 6;
+                for (int t = 0; t < rainLength[i]; t++) {
+                    int y = rainY[i] - (t * 6);
+                    if (y > 0 && y < 70) {
+                        char c = random(33, 126);
+                        u8g2.drawGlyph(x, y, c);
+                    }
+                }
+                rainY[i] += rainSpeed[i];
+                if (rainY[i] - (rainLength[i] * 6) > 64) {
+                    rainY[i] = random(-20, 0);
+                    rainSpeed[i] = random(2, 5);
+                    rainLength[i] = random(5, 14);
+                }
+            }
+        }
+        u8g2.sendBuffer();
+    }
+    
+    void reset() {
+        initialized = false;
+    }
 }
 
 inline void renderSummaryScreen() {

@@ -46,7 +46,8 @@
 #define DEFAULT_DEEP_WORK_GOAL_SEC   36000        // 10 Hours daily target
 #define DAILY_STREAK_THRESHOLD_SEC   3600         // 1 Hour required to count streak
 #define RUNAWAY_ALERT_THRESHOLD_SEC  12600        // 3.5 Hours runaway LED alert
-#define IDLE_DIM_TIMEOUT_MS          180000       // 3 Minutes to dim display
+#define IDLE_DIM_TIMEOUT_MS          60000        // 1 Minute to dim display
+#define SCREENSAVER_TIMEOUT_MS       120000       // 2 Minutes to launch Matrix
 #define AUTO_SAVE_INTERVAL_MS        60000        // 60 Seconds flash flush
 
 // ----------------------------------------------------------------------------
