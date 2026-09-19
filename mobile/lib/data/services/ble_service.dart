@@ -257,6 +257,12 @@ class BleService {
     }
     _chunkBuffer.addAll(bytes);
 
+    if (_chunkBuffer.length > 8192) {
+      _chunkBuffer.clear();
+      debugPrint('[BLE] Chunk buffer overflow, clearing');
+      return;
+    }
+
     int startIdx = -1;
     int depth = 0;
     bool inString = false;

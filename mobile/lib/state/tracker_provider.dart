@@ -715,6 +715,7 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> refreshData() async {
+    if (_protocol == SyncProtocol.bluetooth) return;
     if (_isLoading) return;
     _isLoading = true;
     notifyListeners();
@@ -762,7 +763,7 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> _pollStatus() async {
-    if (_bleService.isConnected || _isPolling) return;
+    if (_protocol == SyncProtocol.bluetooth || _bleService.isConnected || _isPolling) return;
     _isPolling = true;
     try {
       final newStatus = await _apiService.fetchStatus();
@@ -890,8 +891,7 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
 
     if (wifiFallback != null) {
-      if ((_protocol == SyncProtocol.wifi && _isOnline) ||
-          (_protocol == SyncProtocol.bluetooth && !_bleService.isConnected && _isOnline)) {
+      if (_protocol == SyncProtocol.wifi && _isOnline) {
         try {
           await wifiFallback();
           return true;
