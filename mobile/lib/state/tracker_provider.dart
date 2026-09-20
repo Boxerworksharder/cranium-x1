@@ -210,16 +210,10 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
       try {
         final decoded = jsonDecode(cachedStatus) as Map<String, dynamic>;
         _status = DeviceStatus.fromJson(decoded);
-        if (decoded['tasks'] is List) {
-          _tasks = (decoded['tasks'] as List)
-              .map((t) => TaskItem.fromJson(t as Map<String, dynamic>))
-              .toList();
-        }
-        if (decoded['reminders'] is List) {
-          _reminders = (decoded['reminders'] as List)
-              .map((r) => ReminderItem.fromJson(r as Map<String, dynamic>))
-              .toList();
-        }
+        
+        _checklist = _status.checklist;
+        _tasks = _status.tasks;
+        _reminders = _status.reminders;
       } catch (e) {
         debugPrint('[TrackerProvider] Cache restore error: $e');
       }
