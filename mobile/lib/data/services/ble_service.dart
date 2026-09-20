@@ -61,8 +61,12 @@ class BleService {
     _targetDeviceId = id;
   }
 
-  Future<void> startScan({Duration timeout = const Duration(seconds: 5)}) async {
+  Future<String?> startScan({Duration timeout = const Duration(seconds: 5)}) async {
     try {
+      final state = await FlutterBluePlus.adapterState.first;
+      if (state != BluetoothAdapterState.on) {
+        return 'Bluetooth is turned off. Please enable Bluetooth.';
+      }
       if (await FlutterBluePlus.isScanning.first) {
         await FlutterBluePlus.stopScan();
       }
@@ -72,12 +76,15 @@ class BleService {
         timeout: timeout,
         androidUsesFineLocation: false,
       );
+      return null;
     } catch (e) {
       debugPrint('[BLE] Scan error: $e');
       try {
         await FlutterBluePlus.startScan(timeout: timeout);
+        return null;
       } catch (e2) {
         debugPrint('[BLE] Fallback scan error: $e2');
+        return 'Scan error: ${e2.toString()}';
       }
     }
   }

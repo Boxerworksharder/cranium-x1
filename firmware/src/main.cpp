@@ -297,6 +297,20 @@ void handleEncoderInput() {
     }
 }
 
+static bool isGlanceScreen(TrackerState s) {
+    return (s == STATE_VIEW_TASKS || s == STATE_VIEW_REMINDERS || s == STATE_VIEW_CHECKLIST || s == STATE_VIEW_LOGS || s == STATE_VIEW_SUMMARY);
+}
+
+static TrackerState getReturnState(TrackerState prev, const TrackerManager& t) {
+    if (isGlanceScreen(prev)) {
+        if (t.isSessionActive) {
+            return t.isSessionPaused ? STATE_PAUSED : STATE_TRACKING;
+        }
+        return STATE_SELECT_CLIENT;
+    }
+    return prev;
+}
+
 void handleButtons() {
     ButtonHandler::Event knobEvt = knobButton.update();
     ButtonHandler::Event tallyEvt = tallyButton.update();
@@ -331,18 +345,20 @@ void handleButtons() {
             HapticManager::pulseTap();
             if (tracker.state == STATE_VIEW_REMINDERS) {
                 // If viewing notes/reminders, short click returns to previous screen
-                tracker.state = (previousStateBeforeGlance != STATE_VIEW_REMINDERS) ? previousStateBeforeGlance : STATE_SELECT_CLIENT;
+                tracker.state = getReturnState(previousStateBeforeGlance, tracker);
                 if (tracker.state == STATE_SELECT_CLIENT) {
                     tracker.menuIndex = tracker.activeClientIndex;
                 }
             } else if (tracker.state != STATE_VIEW_TASKS) {
                 // Save current state so we can return to it seamlessly
-                previousStateBeforeGlance = tracker.state;
+                if (!isGlanceScreen(tracker.state)) {
+                    previousStateBeforeGlance = tracker.state;
+                }
                 tracker.state = STATE_VIEW_TASKS;
                 tracker.taskScrollIndex = 0;
             } else {
                 // Toggle back to the state we were in before glancing!
-                tracker.state = (previousStateBeforeGlance != STATE_VIEW_TASKS) ? previousStateBeforeGlance : STATE_SELECT_CLIENT;
+                tracker.state = getReturnState(previousStateBeforeGlance, tracker);
                 if (tracker.state == STATE_SELECT_CLIENT) {
                     tracker.menuIndex = tracker.activeClientIndex;
                 }
@@ -353,11 +369,13 @@ void handleButtons() {
             triggerStatusLedFlash(200);
             HapticManager::pulseTap();
             if (tracker.state != STATE_VIEW_REMINDERS) {
-                previousStateBeforeGlance = tracker.state;
+                if (!isGlanceScreen(tracker.state)) {
+                    previousStateBeforeGlance = tracker.state;
+                }
                 tracker.state = STATE_VIEW_REMINDERS;
                 tracker.reminderScrollIndex = 0;
             } else {
-                tracker.state = (previousStateBeforeGlance != STATE_VIEW_REMINDERS) ? previousStateBeforeGlance : STATE_SELECT_CLIENT;
+                tracker.state = getReturnState(previousStateBeforeGlance, tracker);
                 if (tracker.state == STATE_SELECT_CLIENT) {
                     tracker.menuIndex = tracker.activeClientIndex;
                 }
@@ -365,13 +383,15 @@ void handleButtons() {
             needsRedraw = true;
         } else if (sessEvt == ButtonHandler::EXTRA_LONG_PRESS) {
             triggerStatusLedFlash(300);
-            HapticManager::pulseTap(); // You might want a different pattern, but tap is fine
+            HapticManager::pulseTap();
             if (tracker.state != STATE_VIEW_CHECKLIST) {
-                previousStateBeforeGlance = tracker.state;
+                if (!isGlanceScreen(tracker.state)) {
+                    previousStateBeforeGlance = tracker.state;
+                }
                 tracker.state = STATE_VIEW_CHECKLIST;
                 tracker.checklistScrollIndex = 0;
             } else {
-                tracker.state = (previousStateBeforeGlance != STATE_VIEW_CHECKLIST) ? previousStateBeforeGlance : STATE_SELECT_CLIENT;
+                tracker.state = getReturnState(previousStateBeforeGlance, tracker);
                 if (tracker.state == STATE_SELECT_CLIENT) {
                     tracker.menuIndex = tracker.activeClientIndex;
                 }
@@ -451,7 +471,7 @@ void handleButtons() {
                 bleManager.requestImmediateBroadcast();
             } else if (tracker.state == STATE_VIEW_REMINDERS) {
                 HapticManager::pulseTap();
-                tracker.state = (previousStateBeforeGlance != STATE_VIEW_REMINDERS) ? previousStateBeforeGlance : STATE_SELECT_CLIENT;
+                tracker.state = getReturnState(previousStateBeforeGlance, tracker);
                 if (tracker.state == STATE_SELECT_CLIENT) {
                     tracker.menuIndex = tracker.activeClientIndex;
                 }
@@ -462,13 +482,13 @@ void handleButtons() {
                 tracker.menuIndex = tracker.activeClientIndex;
             } else if (tracker.state == STATE_VIEW_LOGS) {
                 HapticManager::pulseTap();
-                tracker.state = (previousStateBeforeGlance != STATE_VIEW_LOGS) ? previousStateBeforeGlance : STATE_SELECT_CLIENT;
+                tracker.state = getReturnState(previousStateBeforeGlance, tracker);
                 if (tracker.state == STATE_SELECT_CLIENT) {
                     tracker.menuIndex = tracker.activeClientIndex;
                 }
             } else if (tracker.state == STATE_VIEW_SUMMARY) {
                 HapticManager::pulseTap();
-                tracker.state = (previousStateBeforeGlance != STATE_VIEW_SUMMARY) ? previousStateBeforeGlance : STATE_SELECT_CLIENT;
+                tracker.state = getReturnState(previousStateBeforeGlance, tracker);
                 if (tracker.state == STATE_SELECT_CLIENT) {
                     tracker.menuIndex = tracker.activeClientIndex;
                 }
@@ -552,7 +572,9 @@ void handleButtons() {
             if (tallyEvt == ButtonHandler::CLICK) {
                 triggerStatusLedFlash(150);
                 HapticManager::pulseTap();
-                previousStateBeforeGlance = tracker.state;
+                if (!isGlanceScreen(tracker.state)) {
+                    previousStateBeforeGlance = tracker.state;
+                }
                 tracker.state = STATE_VIEW_CHECKLIST;
                 tracker.checklistScrollIndex = 0;
                 needsRedraw = true;
@@ -567,7 +589,7 @@ void handleButtons() {
             if (tallyEvt == ButtonHandler::CLICK) {
                 triggerStatusLedFlash(150);
                 HapticManager::pulseTap();
-                tracker.state = (previousStateBeforeGlance != STATE_VIEW_CHECKLIST) ? previousStateBeforeGlance : STATE_SELECT_CLIENT;
+                tracker.state = getReturnState(previousStateBeforeGlance, tracker);
                 if (tracker.state == STATE_SELECT_CLIENT) tracker.menuIndex = tracker.activeClientIndex;
                 needsRedraw = true;
             } else if (tallyEvt == ButtonHandler::LONG_PRESS) {

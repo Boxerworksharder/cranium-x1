@@ -15,6 +15,12 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
   final TextEditingController _textCtrl = TextEditingController();
 
   void _showAddItemSheet(BuildContext context, TrackerProvider tracker) {
+    if (tracker.checklist.length >= 20) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Checklist is full (maximum 20 items for device sync)')),
+      );
+      return;
+    }
     _textCtrl.clear();
     showModalBottomSheet(
       context: context,

@@ -19,6 +19,13 @@ class _TasksScreenState extends State<TasksScreen> {
   int _filterIndex = 0; // 0: All, 1: Pending, 2: Done
 
   void _showAddTaskSheet(BuildContext context) {
+    final tracker = context.read<TrackerProvider>();
+    if (tracker.tasks.length >= 16) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Task list is full (maximum 16 tasks for device sync)')),
+      );
+      return;
+    }
     final textCtrl = TextEditingController();
     int selectedStars = 3; // Default to 3 stars (top priority)
 
@@ -201,6 +208,13 @@ class _TasksScreenState extends State<TasksScreen> {
   }
 
   void _showAddReminderSheet(BuildContext context) {
+    final tracker = context.read<TrackerProvider>();
+    if (tracker.reminders.length >= 16) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Reminders full (maximum 16 notes for device sync)')),
+      );
+      return;
+    }
     final textCtrl = TextEditingController();
 
     showModalBottomSheet(

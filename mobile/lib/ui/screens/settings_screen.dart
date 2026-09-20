@@ -911,7 +911,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ? null
                       : () async {
                           AppTheme.hapticAction();
-                          await ble.startScan();
+                          final err = await ble.startScan();
+                          if (err != null && context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(err),
+                                backgroundColor: AppTheme.dangerCrimson,
+                              ),
+                            );
+                          }
                         },
                 ),
               ],

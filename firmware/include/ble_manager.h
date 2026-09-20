@@ -231,9 +231,13 @@ public:
             focusPurity = tracker->getFocusPurityPct();
             goal = tracker->globalDeepWorkGoalSeconds > 0 ? tracker->globalDeepWorkGoalSeconds : 36000;
             pct = (totalDwSecs * 100) / goal;
-            if (tracker->state == STATE_TRACKING) stateStr = "TRACKING";
-            else if (tracker->state == STATE_PAUSED) stateStr = "PAUSED";
-            else if (tracker->state == STATE_STRESS_BUSTER) stateStr = "STRESS_BUSTER";
+            if (tracker->state == STATE_STRESS_BUSTER) {
+                stateStr = "STRESS_BUSTER";
+            } else if (tracker->isSessionActive || tracker->state == STATE_TRACKING || tracker->state == STATE_PAUSED) {
+                stateStr = (tracker->isSessionPaused || tracker->state == STATE_PAUSED) ? "PAUSED" : "TRACKING";
+            } else {
+                stateStr = "IDLE";
+            }
             streak = tracker->currentStreakDays;
             sessionSecs = tracker->currentSessionSeconds;
             ClientInfo& c = tracker->getActiveClient();

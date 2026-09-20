@@ -114,6 +114,8 @@ public:
     unsigned long currentSessionSeconds = 0;
     unsigned long lastTickMillis = 0;
     unsigned long globalDeepWorkGoalSeconds = 36000;
+    bool isSessionActive = false;
+    bool isSessionPaused = false;
 
     // Daily Streak Engine
     int currentStreakDays = 0;
@@ -432,6 +434,8 @@ public:
         checklist.clear();
 
         currentSessionSeconds = 0;
+        isSessionActive = false;
+        isSessionPaused = false;
         currentStreakDays = 0;
         longestStreakDays = 0;
         lastActiveDate = getSystemDate();
@@ -603,6 +607,8 @@ public:
 
     void startTracking() {
         recordUserActivity();
+        isSessionActive = true;
+        isSessionPaused = false;
         state = STATE_TRACKING;
         sessionStartMillis = millis();
         lastTickMillis = millis();
@@ -611,7 +617,16 @@ public:
 
     void togglePause() {
         recordUserActivity();
-        if (state == STATE_TRACKING) {
+        if (isSessionActive) {
+            isSessionPaused = !isSessionPaused;
+            if (isSessionPaused) {
+                if (state == STATE_TRACKING) state = STATE_PAUSED;
+            } else {
+                if (state == STATE_PAUSED) state = STATE_TRACKING;
+                lastTickMillis = millis();
+                lastAutoSaveMillis = millis();
+            }
+        } else if (state == STATE_TRACKING) {
             state = STATE_PAUSED;
         } else if (state == STATE_PAUSED) {
             state = STATE_TRACKING;
@@ -622,7 +637,7 @@ public:
 
     void stopAndSave(String customTimestamp = "", String customDate = "") {
         recordUserActivity();
-        if (state == STATE_TRACKING || state == STATE_PAUSED) {
+        if (isSessionActive || state == STATE_TRACKING || state == STATE_PAUSED) {
             if (currentSessionSeconds > 0) {
                 ClientInfo& active = getActiveClient();
                 active.totalSecondsToday += currentSessionSeconds;
@@ -641,6 +656,8 @@ public:
                 }
             }
             currentSessionSeconds = 0;
+            isSessionActive = false;
+            isSessionPaused = false;
             state = STATE_SELECT_CLIENT;
             menuIndex = activeClientIndex;
         }
@@ -648,7 +665,7 @@ public:
 
     bool update() {
         unsigned long now = millis();
-        if (state == STATE_TRACKING) {
+        if ((isSessionActive && !isSessionPaused) || state == STATE_TRACKING) {
             if (now - lastTickMillis >= 1000) {
                 unsigned long secondsPassed = (now - lastTickMillis) / 1000;
                 currentSessionSeconds += secondsPassed;
@@ -669,7 +686,7 @@ public:
             String yesterdayStr = lastActiveDate;
 
             // Active tracking straddle: credit pre-midnight seconds to yesterday
-            if ((state == STATE_TRACKING || state == STATE_PAUSED) && currentSessionSeconds > 0) {
+            if ((isSessionActive || state == STATE_TRACKING || state == STATE_PAUSED) && currentSessionSeconds > 0) {
                 getActiveClient().totalSecondsToday += currentSessionSeconds;
                 currentSessionSeconds = 0;
                 lastTickMillis = millis();

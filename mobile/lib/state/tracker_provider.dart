@@ -300,7 +300,9 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
       await prefs.setString('pref_last_active_date', currentDate);
     }
     _checkLocalMidnightRollover();
-    _startMidnightTimer();
+    if (autoStartPolling) {
+      _startMidnightTimer();
+    }
   }
 
   Future<void> _saveCachedStatus() async {
@@ -919,7 +921,7 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> addTask(String text, int stars) async {
     final trimmed = text.trim();
-    if (trimmed.isEmpty) return;
+    if (trimmed.isEmpty || _tasks.length >= 16) return;
 
     final maxId = _tasks.fold<int>(0, (prev, t) => t.id > prev ? t.id : prev);
     final tempId = maxId + 1;
@@ -1039,7 +1041,7 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> addReminder(String text) async {
     final trimmed = text.trim();
-    if (trimmed.isEmpty) return;
+    if (trimmed.isEmpty || _reminders.length >= 16) return;
 
     final maxId = _reminders.fold<int>(0, (prev, r) => r.id > prev ? r.id : prev);
     final tempId = maxId + 1;
@@ -1115,6 +1117,9 @@ class TrackerProvider extends ChangeNotifier with WidgetsBindingObserver {
   // --- Section Operations ---
 
   Future<void> saveChecklist(List<ChecklistItem> newList) async {
+    if (newList.length > 20) {
+      newList = newList.sublist(0, 20);
+    }
     _checklist = newList;
     _saveCachedStatus();
     notifyListeners();
