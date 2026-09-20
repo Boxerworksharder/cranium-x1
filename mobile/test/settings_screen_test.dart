@@ -51,8 +51,9 @@ void main() {
       expect(find.text('BLE 5.0 GATT'), findsOneWidget);
       expect(find.text('SYNC PHONE TIME (RTC)'), findsOneWidget);
       expect(find.text('PORTABILITY & POWER BANK'), findsOneWidget);
-      expect(find.text('DESK OLED BRIGHTNESS'), findsOneWidget);
-      expect(find.text('SUPPORT CRANIUM X1'), findsOneWidget);
+      // Verify removed controls (Brightness, Buy Me A Coffee)
+      expect(find.text('DESK OLED BRIGHTNESS'), findsNothing);
+      expect(find.text('SUPPORT CRANIUM X1'), findsNothing);
       expect(find.text('FACTORY DATA RESET'), findsOneWidget);
     });
   });

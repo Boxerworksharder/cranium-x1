@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../../core/services/csv_export_service.dart';
 import '../../core/theme/app_theme.dart';
 import '../../state/tracker_provider.dart';
@@ -15,15 +14,7 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  double _brightness = 255;
   bool _isConnectingBle = false;
-
-  @override
-  void initState() {
-    super.initState();
-    final tracker = context.read<TrackerProvider>();
-    _brightness = tracker.status.brightness.toDouble();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -243,54 +234,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               const SizedBox(height: 16),
 
-              // 2. Hardware Display Controls
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppTheme.surfaceDeck,
-                  borderRadius: BorderRadius.circular(AppTheme.radiusDeck),
-                  border: Border.all(color: AppTheme.hairlineSeam),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'DESK OLED BRIGHTNESS',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                        color: AppTheme.textMuted,
-                        letterSpacing: 1.2,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Icon(Icons.brightness_low, color: AppTheme.textMuted, size: 18),
-                        Expanded(
-                          child: Slider(
-                            value: _brightness,
-                            min: 5,
-                            max: 255,
-                            divisions: 25,
-                            activeColor: AppTheme.orangeFlame,
-                            inactiveColor: AppTheme.surfaceRecessed,
-                            onChanged: (val) {
-                              setState(() => _brightness = val);
-                            },
-                            onChangeEnd: (val) {
-                              AppTheme.hapticLight();
-                              tracker.setBrightness(val.toInt());
-                            },
-                          ),
-                        ),
-                        Icon(Icons.brightness_high, color: AppTheme.orangeFlame, size: 18),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
+
 
               // 3. Data Logistics, Backup & Full Export Card
               Container(
@@ -597,7 +541,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                     ),
                     const SizedBox(height: 10),
-                    _buildTelemetryRow('APP VERSION', 'v1.6.0 (Build 6)'),
+                    _buildTelemetryRow('APP VERSION', 'v1.9.0 (Build 10)'),
                     _buildTelemetryRow('DEVICE', 'ESP32-C3 SuperMini'),
                     _buildTelemetryRow('DISPLAY', '128x64 SH1106 OLED (I2C)'),
                     _buildTelemetryRow('BLUETOOTH', 'BLE 5.0 GATT (Cranium-X1)'),
@@ -609,64 +553,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               const SizedBox(height: 16),
 
-              // 5. Support the Project: Buy Me A Coffee
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppTheme.surfaceDeck,
-                  borderRadius: BorderRadius.circular(AppTheme.radiusDeck),
-                  border: Border.all(color: const Color(0xFFFFDD00).withOpacity(0.4)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.coffee_rounded, color: Color(0xFFFFDD00), size: 20),
-                        const SizedBox(width: 8),
-                        Text(
-                          'SUPPORT CRANIUM X1',
-                          style: AppTheme.technicalLabel(
-                            color: const Color(0xFFFFDD00),
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 1.2,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Distraction-free deep work built for the community. Fuel future firmware enhancements, PCB schematics, and open-source updates with a coffee.',
-                      style: TextStyle(fontSize: 11, color: AppTheme.textMuted, height: 1.4),
-                    ),
-                    const SizedBox(height: 14),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        icon: const Icon(Icons.volunteer_activism_rounded, size: 18),
-                        label: const Text(
-                          'BUY ME A COFFEE (☕ boxerworksharder)',
-                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 0.8),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFFFDD00),
-                          foregroundColor: Colors.black87,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppTheme.radiusControl)),
-                        ),
-                        onPressed: () async {
-                          final uri = Uri.parse('https://buymeacoffee.com/boxerworksharder');
-                          if (await canLaunchUrl(uri)) {
-                            await launchUrl(uri, mode: LaunchMode.externalApplication);
-                          }
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
+
 
               // 6. Danger Zone: Factory Data Reset with Warning Modal
               Container(
